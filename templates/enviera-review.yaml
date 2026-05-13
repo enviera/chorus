@@ -1,0 +1,43 @@
+id: enviera-review
+name: Enviera Review
+description: |
+  Single-pass multi-vendor review. Claude Opus 4.7 + latest Codex + latest
+  Gemini critique the artifact independently. 2-of-3 quorum.
+
+  Three reviewers exactly — one per lineage. Chorus's fallback adapter
+  does NOT fill extra slots from this template (review-only's opencode-go
+  slots inflate the Claude count when opencode-go isn't installed).
+author: enviera
+agreementThreshold: 0.66
+onThresholdMet: ask
+maxRounds: 1
+yoloDefault: false
+estimatedBaselineTokens: 500
+
+# Review-only; no doer phase, no ship phase.
+ship:
+  enabled: false
+
+phases:
+  - id: review
+    kind: review_only
+    title: Multi-vendor Review
+    description: |
+      Claude Opus 4.7, Codex (gpt-5.5), and Gemini 3.1 Pro Preview review
+      the artifact independently. 2-of-3 quorum to mark as agreed.
+    reviewer:
+      require: 2
+      crossLineage: true
+      candidates:
+        - lineage: anthropic
+          models:
+            - claude-opus-4-7
+        - lineage: openai
+          models:
+            - gpt-5.5
+        - lineage: google
+          models:
+            - gemini-3.1-pro-preview
+    artifact:
+      label: "Artifact to review"
+      hint: "Paste a unified diff + spec, or any text to critique."
