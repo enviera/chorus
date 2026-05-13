@@ -100,9 +100,26 @@ phases:
 
       ## Output format
 
-      Write your findings to `answer.md` in this structure:
+      Write your findings to `answer.md` in this structure. The
+      `## Verification steps run` section is MANDATORY — it's the audit
+      trail for what you actually did. Without it, the orchestrator
+      cannot tell whether you grepped the codebase or just read the diff,
+      and a "looks fine" verdict from a diff-only reviewer can rubber-stamp
+      bugs that would have been caught by file inspection. Be honest about
+      what you did; "(none)" is a valid entry.
 
       ```
+      ## Verification steps run
+      - **Files read:** <comma-separated list of file paths you read via the Read tool,
+        or `(none — diff only)`>
+      - **Shell commands run:** <comma-separated list of bash commands you ran,
+        e.g., `grep -n "discretionarySpending" src/`, `tsc --noEmit`, `eslint src`,
+        or `(none — diff only)`>
+      - **Worktree access status:** <one of:
+          `verified — read files / ran commands at repoPath successfully`
+          `partial — could read some files but `<x>` failed`
+          `none — could not access repoPath; reviewed diff only`>
+
       ## Verdict
       <agreed | request_changes | comment-only>
 
@@ -122,6 +139,12 @@ phases:
        sequencing dependencies, PRs that should land together, scope
        boundaries, etc.>
       ```
+
+      The verification-steps section calibrates the cross-vendor signal: when
+      Reviewer A says `verified` and Reviewer B says `none — diff only`, an
+      agreement-on-`approve` between them is weaker than it looks — only A
+      actually checked. The orchestrator uses this to weight findings and to
+      decide whether to apply Step 7.5 override.
 
       If there are no items in a category, omit that section. If there are
       zero findings total, write `## Findings\n(none)` and set verdict to
