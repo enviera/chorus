@@ -122,6 +122,16 @@ export const CreateChatSchema = z
      * artifact.maxBytes (default 1 MiB).
      */
     artifact: z.string().optional(),
+    /**
+     * Absolute path to a repository / worktree to make available to the
+     * doer AND reviewers. When set:
+     *   - doer's CWD = repoPath (existing behavior)
+     *   - reviewers' CWD = repoPath (mirrors doer; was previously hardcoded
+     *     to the per-chat chat dir, giving reviewers no codebase access)
+     * The daemon validates the path is absolute, exists, is a directory,
+     * and resolves symlinks to a canonical path before storing.
+     */
+    repoPath: z.string().optional(),
   })
   .transform((input) => ({
     ...input,
@@ -266,6 +276,7 @@ export async function createChat(input: unknown) {
       templateId: parsed.templateId,
       files: parsed.files,
       ...(parsed.artifact !== undefined ? { artifact: parsed.artifact } : {}),
+      ...(parsed.repoPath !== undefined ? { repoPath: parsed.repoPath } : {}),
     }),
   });
 

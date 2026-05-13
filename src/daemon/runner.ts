@@ -169,6 +169,7 @@ export async function runChat(opts: PhaseRunnerOptions): Promise<void> {
           onEvent,
           abortSignal,
           templateFallbackReviewer: template.fallback?.reviewer,
+          repoPath,
         });
         if (outcome.allReviewersFailed) {
           anyPhaseAllReviewersFailed = true;
@@ -292,6 +293,7 @@ export async function runChat(opts: PhaseRunnerOptions): Promise<void> {
             onEvent,
             abortSignal,
             template.fallback?.reviewer,
+            repoPath,
           );
 
           if (consensus.allFailed) {

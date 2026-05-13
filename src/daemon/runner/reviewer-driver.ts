@@ -62,6 +62,7 @@ export async function runReviewers(
   onEvent: (e: RunnerEvent) => void,
   abortSignal: AbortSignal,
   templateFallbackReviewer?: ReadonlyArray<{ lineage: string; models: string[] }>,
+  repoPath?: string,
 ): Promise<{ agreed: boolean; summary: string; allFailed: boolean }> {
   if (!phase.reviewer || phase.reviewer.candidates.length === 0) {
     return { agreed: true, summary: '', allFailed: false };
@@ -150,6 +151,7 @@ export async function runReviewers(
         onEvent,
         abortSignal,
         templateFallbackReviewer,
+        repoPath,
       );
       reviews.push({
         reviewer: `${candidate.lineage}-${idx}`,
@@ -225,6 +227,7 @@ async function runReviewer(
   onEvent: (e: RunnerEvent) => void,
   abortSignal: AbortSignal,
   templateFallbackReviewer?: ReadonlyArray<{ lineage: string; models: string[] }>,
+  repoPath?: string,
 ): Promise<boolean | null> {
   // Returns:
   //   true  = reviewer ran and approved
@@ -583,7 +586,12 @@ async function runReviewer(
     shim,
     spawnOpts: {
       sessionName,
-      cwd: reviewerDir,
+      // When the chat was created with a repoPath, reviewers run CWD'd
+      // to the repo so Read/Bash/Grep can see the codebase the diff
+      // came from. Mirrors the doer-driver pattern. Without this,
+      // reviewers see only `artifact` + `files`-block-packed-into-prompt;
+      // they can't grep adjacent code or check pattern fit dynamically.
+      cwd: repoPath ?? reviewerDir,
       model: candidate.models?.[0],
       sandbox: perms.sandboxProfile,
       autoApprove: perms.autoApprovePrompts,

@@ -30,6 +30,7 @@ export async function runReviewOnlyPhase(args: {
   onEvent: (e: RunnerEvent) => void;
   abortSignal: AbortSignal;
   templateFallbackReviewer?: ReadonlyArray<{ lineage: string; models: string[] }>;
+  repoPath?: string;
 }): Promise<{
   completed: boolean;
   allReviewersFailed: boolean;
@@ -50,6 +51,7 @@ export async function runReviewOnlyPhase(args: {
     errorDetector,
     onEvent,
     abortSignal,
+    repoPath,
   } = args;
 
   if (abortSignal.aborted) {
@@ -142,6 +144,7 @@ export async function runReviewOnlyPhase(args: {
     onEvent,
     abortSignal,
     args.templateFallbackReviewer,
+    repoPath,
   );
 
   return {
