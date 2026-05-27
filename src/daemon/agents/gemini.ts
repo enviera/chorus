@@ -90,6 +90,16 @@ export const geminiShim: AgentShim = {
       '--skip-trust',
     ];
 
+    // Extra READ dirs (reviewers pass the chat's repoPath). Gemini's
+    // workspace-trust is scoped to cwd, so without this it can't read the
+    // repo the diff came from and abstains. --include-directories adds them
+    // to the workspace for reading; cwd stays the per-chat dir so `./answer.md`
+    // capture is unaffected. The reviewer is prompted to review, not edit, and
+    // writes its answer to ./answer.md in cwd — it does not target repoPath.
+    if (opts.readDirs && opts.readDirs.length > 0) {
+      args.push('--include-directories', opts.readDirs.join(','));
+    }
+
     // Sandbox profile → approval-mode mapping. Never use yolo
     // (see feedback_gemini_yolo_dangerous.md — empty-content overwrites).
     if (opts.sandbox === 'strict') {

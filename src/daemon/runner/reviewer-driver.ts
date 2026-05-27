@@ -499,6 +499,7 @@ async function runReviewer(
               askContent: ask,
               answerFile,
               reviewerDir,
+              repoPath,
               abortSignal: handle.signal,
               onEvent,
             });

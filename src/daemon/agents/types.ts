@@ -250,6 +250,17 @@ export interface HeadlessSpawnOptions {
   timeoutMs?: number;
   /** Per-account isolation (codex multi-auth). */
   accountId?: string;
+  /**
+   * Extra directories the CLI may READ (not the cwd). Reviewers pass the
+   * chat's `repoPath` here so a sandboxed CLI (notably gemini, whose
+   * workspace-trust is scoped to cwd) can read the codebase the diff came
+   * from WITHOUT us moving cwd to the repo. Keeping cwd = the per-chat dir
+   * preserves the `./answer.md` capture contract and the chat-dir write
+   * boundary. Each shim maps this to its own flag: gemini
+   * `--include-directories`, claude `--add-dir`. Codex reads within its
+   * workspace-write sandbox already and stubs regardless, so it ignores this.
+   */
+  readDirs?: string[];
 }
 
 /**

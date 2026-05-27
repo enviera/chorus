@@ -36,6 +36,14 @@ export async function runReviewerHeadless(args: {
   askContent: string;
   answerFile: string;
   reviewerDir: string;
+  /**
+   * When the chat was created with a repoPath, reviewers get READ access to
+   * it (mapped to each CLI's read-dir flag) so they can inspect the codebase
+   * the diff came from. We deliberately do NOT make it the cwd — cwd stays
+   * `reviewerDir` so `./answer.md` capture and the chat-dir write boundary
+   * are preserved. See HeadlessSpawnOptions.readDirs.
+   */
+  repoPath?: string;
   abortSignal: AbortSignal;
   onEvent: (e: RunnerEvent) => void;
 }): Promise<boolean | null> {
@@ -51,6 +59,7 @@ export async function runReviewerHeadless(args: {
     askContent,
     answerFile,
     reviewerDir,
+    repoPath,
     abortSignal,
     onEvent,
   } = args;
@@ -81,7 +90,11 @@ export async function runReviewerHeadless(args: {
   const writer = new StreamFileWriter(answerFile);
 
   const stream = shim.runHeadless({
+    // cwd stays the per-chat reviewer dir (NOT repoPath) so `./answer.md`
+    // capture and the chat-dir write boundary are preserved. repoPath is
+    // granted as a READ-only extra dir via readDirs instead.
     cwd: reviewerDir,
+    readDirs: repoPath ? [repoPath] : undefined,
     promptText: askContent,
     model: candidateModel,
     sandbox: perms.sandboxProfile,

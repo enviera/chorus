@@ -121,6 +121,15 @@ export const claudeShim: AgentShim = {
       args.push('--model', opts.model);
     }
 
+    // Extra READ dirs (reviewers pass the chat's repoPath). Claude already
+    // reaches absolute paths under bypassPermissions, but --add-dir makes the
+    // repo an explicit allowed tool-access dir so reviewer reads keep working
+    // even if Claude tightens its default out-of-cwd behavior. cwd is
+    // unchanged, so this adds no write capability Claude didn't already have.
+    if (opts.readDirs && opts.readDirs.length > 0) {
+      args.push('--add-dir', ...opts.readDirs);
+    }
+
     // Claude doesn't have a "no network" flag in headless, so networkAccess
     // is implicitly governed by the user's claude config and any tool the
     // agent attempts. Strict sandbox + plan mode is our gate.
