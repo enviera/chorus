@@ -176,17 +176,40 @@ export async function runReviewerHeadless(args: {
             );
           }
         } else {
-          // Don't double-stamp the sentinel. Codex (and any CLI that
-          // ends its own output with "## DONE") would otherwise ship
-          // an answer with `... ## DONE\n\n\n## DONE\n` — the verdict
-          // heuristic doesn't care, but it looks unprofessional in the
-          // cockpit and breaks tools that grep for a single sentinel.
+          // Keep whichever is more content-bearing: a reviewer that used
+          // its Write tool per the template ("Mechanism 1") saves the full
+          // structured findings to answer.md and then emits a minimal
+          // verdict-only final message. Overwriting unconditionally here
+          // destroyed that tool-written review and left a 25-byte stub —
+          // the degraded-run failure observed on every Claude reviewer run
+          // of 2026-06-06. The template prompt already documents this
+          // longer-content-wins behavior; this makes the code match it.
+          const existing = fs.existsSync(answerFile)
+            ? fs.readFileSync(answerFile, 'utf-8')
+            : '';
           const trimmedTail = event.finalText.replace(/\s+$/, '');
-          const alreadyHasSentinel = /\n##\s*DONE\s*$/i.test(trimmedTail);
-          const body = alreadyHasSentinel
-            ? `${trimmedTail}\n`
-            : `${trimmedTail}\n\n## DONE\n`;
-          fs.writeFileSync(answerFile, body);
+          if (existing.trim().length > trimmedTail.length) {
+            // Tool-written findings (or streamed deltas) on disk are longer
+            // than the final message — preserve them, just ensure the
+            // sentinel is stamped once.
+            if (!/\n##\s*DONE\s*\n?$/i.test(existing.trimEnd())) {
+              fs.appendFileSync(
+                answerFile,
+                existing.endsWith('\n') ? '\n## DONE\n' : '\n\n## DONE\n',
+              );
+            }
+          } else {
+            // Don't double-stamp the sentinel. Codex (and any CLI that
+            // ends its own output with "## DONE") would otherwise ship
+            // an answer with `... ## DONE\n\n\n## DONE\n` — the verdict
+            // heuristic doesn't care, but it looks unprofessional in the
+            // cockpit and breaks tools that grep for a single sentinel.
+            const alreadyHasSentinel = /\n##\s*DONE\s*$/i.test(trimmedTail);
+            const body = alreadyHasSentinel
+              ? `${trimmedTail}\n`
+              : `${trimmedTail}\n\n## DONE\n`;
+            fs.writeFileSync(answerFile, body);
+          }
         }
         // Persist runtime stats next to the answer so the cockpit run-
         // artifacts route can surface "12.4s · 3.4k tok" on the card even

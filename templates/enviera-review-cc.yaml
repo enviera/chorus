@@ -1,11 +1,13 @@
-id: enviera-review
-name: Enviera Review
+id: enviera-review-cc
+name: Enviera Review (Claude + Codex)
 description: |
   Single-pass multi-vendor PR / code review. Claude Opus 4.7 + latest Codex
-  + latest Gemini critique the artifact independently with the Enviera review
-  philosophy baked in. 2-of-3 quorum.
+  critique the artifact independently with the Enviera review philosophy
+  baked in. 2-of-2 quorum. Variant of enviera-review without the Gemini
+  lineage — for runs where Google quota is exhausted or Gemini is
+  unavailable.
 
-  Three reviewers exactly — one per lineage. Chorus's fallback adapter does
+  Two reviewers exactly — one per lineage. Chorus's fallback adapter does
   NOT fill extra slots from this template (review-only's opencode-go slots
   inflate the Claude count to 4 when opencode-go isn't installed).
 
@@ -30,10 +32,9 @@ phases:
     kind: review_only
     title: PR / Code Review (multi-vendor)
     description: |
-      You are reviewing code or a PR. Three reviewers from different lineages
-      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, Google Gemini 3.1 Pro
-      Preview) read the SAME artifact independently. 2-of-3 must agree to
-      mark the chat as agreed.
+      You are reviewing code or a PR. Two reviewers from different lineages
+      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5) read the SAME artifact
+      independently. Both must agree to mark the chat as agreed.
 
       You have full filesystem access to the worktree at the supplied
       repoPath. Use Read / Bash / Grep liberally to verify the diff against
@@ -179,7 +180,11 @@ phases:
       **Mechanism 1 — Write tool (PREFERRED if you have one).** If your
       CLI has a `Write` / file-write tool (Claude Code, Gemini-CLI, any
       tool-using harness), USE IT to save your full structured findings
-      to `./answer.md` BEFORE you emit your final assistant message. Then
+      to `./answer.md` BEFORE you emit your final assistant message. A
+      shell counts: if you can run shell commands but have no dedicated
+      Write tool (Codex Exec with workspace-write), write the file with
+      a heredoc — `cat > answer.md <<'REVIEW' ... REVIEW` — in your
+      working directory. That is still Mechanism 1. Then
       keep your final message minimal — just the verdict line + `## DONE`
       sentinel. Your tool-written file survives because the orchestrator
       only overwrites `answer.md` with your final-message text when that
@@ -187,9 +192,9 @@ phases:
       already on disk. A short verdict-only final message preserves the
       Write-tool content.
 
-      **Mechanism 2 — Final-message streaming (if no Write tool).** If
-      your CLI lacks a Write tool (Codex Exec mode, opencode-cli stream
-      mode), emit your FULL structured findings as your direct final
+      **Mechanism 2 — Final-message streaming (no Write tool AND no
+      shell).** If your CLI can neither write files nor run shell
+      commands, emit your FULL structured findings as your direct final
       assistant message. Do NOT internally summarize or reason silently
       and emit a one-paragraph paraphrase — the orchestrator saves your
       visible final message verbatim, and a stub summary is treated as a
@@ -282,9 +287,6 @@ phases:
         - lineage: openai
           models:
             - gpt-5.5
-        - lineage: google
-          models:
-            - gemini-3.1-pro-preview
     artifact:
       label: "Artifact to review"
       hint: "Paste the PR diff + spec / issue body, or any text blob to critique."
