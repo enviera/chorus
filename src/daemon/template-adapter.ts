@@ -156,6 +156,28 @@ export function adaptTemplate(
           isComplete = false;
         }
       }
+
+      // Reconcile the cross-lineage constraint against what we could
+      // actually assign. In a single-lineage box (e.g. a claude-only
+      // container) every candidate slot collapses to one lineage, which
+      // makes `crossLineage: true` with `require > distinctLineages`
+      // unsatisfiable. ReviewerSchema.superRefine rejects that shape, so
+      // the adapted builtin fails TemplateSchema.parse — and the
+      // chat-create path then silently skips BOTH artifact validation and
+      // the runner auto-fire, leaving the chat stuck at "drafting" forever
+      // (the c10230ff hang). Drop crossLineage to false so `require` can
+      // still be met by same-lineage voices (e.g. 2-of-3 agreement among
+      // claude reviewers) — cross-vendor diversity is impossible here
+      // anyway.
+      const reviewer = phase.reviewer;
+      const distinctLineages = new Set(
+        (reviewer.candidates ?? []).map((c) => c.lineage),
+      ).size;
+      const requireN = reviewer.require ?? 1; // schema default
+      const crossLineage = reviewer.crossLineage ?? true; // schema default
+      if (crossLineage && requireN > distinctLineages) {
+        reviewer.crossLineage = false;
+      }
     }
   }
   // changed flag — compare round-tripped JSON. Cheap, deterministic,

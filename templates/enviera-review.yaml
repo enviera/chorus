@@ -94,6 +94,28 @@ phases:
         a critical path." Reference: 2026-06-05 CareNow VIDA e-signature
         outage hard-blocked every new loan because the signing step had a
         hard 20s timeout and no fallback.
+      - **End-to-end money/value flows — both legs must be live, not just
+        the inbound one:** if the PR adds or extends a flow that moves
+        money/value (a new VA / payment channel, a capture, a webhook that
+        receives funds, a disbursement / settlement / allocation path), check
+        that the OUTBOUND/settlement leg — forward to the real account,
+        disburse, allocate to the obligation, reconcile — both EXISTS and is
+        WIRED: the handler/worker that performs it is registered in its
+        dispatcher and reachable, not merely defined. An inbound leg that
+        saves a payment `COMPLETED` / returns 200 over a `// TODO`, or that
+        enqueues a task whose worker isn't registered, is a `Fix before
+        merge` — it strands money silently with no error thrown. If the
+        outbound leg is intentionally deferred behind a flag, the inbound
+        leg's user-facing enablement (issuing/displaying the collection
+        instrument to real users) must be gated by the SAME flag — flag the
+        PR if collection can be turned on independently of settlement. Grep
+        the worker-registration / dispatcher file to confirm any enqueued
+        task has a registered handler. Scope narrowly: a flow with no money
+        movement, or whose outbound leg is clearly present + registered, is
+        NOT a finding. Reference: 2026-06-25 CareNow ISS037 — non-Mandiri
+        repayment VAs were issued in prod while the Finfra-forward worker was
+        unregistered/undeployed; the callback saved payments COMPLETED over a
+        `// TODO` and money stranded.
 
       ## Blast-radius-vs-description check
 

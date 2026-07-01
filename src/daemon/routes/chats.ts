@@ -211,6 +211,7 @@ export function registerChatRoutes(
       // YAML parsing twice in the same handler.
       let initialPhaseKind: PhaseKind = 'plan';
       let parsedTemplateForArtifactCheck: ReturnType<typeof TemplateSchema.parse> | null = null;
+      let templateParseError: string | null = null;
       try {
         const rawParsed = yaml.parse(tmpl.yaml);
         const safe = TemplateSchema.safeParse(rawParsed);
@@ -219,6 +220,9 @@ export function registerChatRoutes(
           const firstKind = safe.data.phases[0]?.kind;
           initialPhaseKind = firstKind as PhaseKind;
         } else {
+          templateParseError = safe.error.issues
+            .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+            .join('; ');
           // Fall back to a loose read so older malformed templates
           // still produce an initial event with their declared kind.
           const loose = rawParsed as { phases?: Array<{ kind?: string }> } | undefined;
@@ -231,8 +235,27 @@ export function registerChatRoutes(
             initialPhaseKind = firstKind as PhaseKind;
           }
         }
-      } catch {
+      } catch (err) {
+        templateParseError =
+          err instanceof Error ? err.message : 'template YAML failed to parse';
         /* fall through with 'plan' default */
+      }
+
+      // Fail-fast: a template that fails strict validation can never be
+      // auto-run headlessly — the artifact check below AND the runner
+      // auto-fire further down are BOTH gated on a successful parse, so
+      // creating the chat anyway leaves it stuck at "drafting" forever
+      // with no error surfaced (the c10230ff hang: an adapter-produced
+      // enviera-review with crossLineage:true + require>distinctLineages).
+      // Reject loudly with the real reason instead of hanging silently.
+      if (!parsedTemplateForArtifactCheck) {
+        return sendError(
+          reply,
+          'validation',
+          `template "${tmpl.id}" failed validation and cannot be run: ${
+            templateParseError ?? 'unknown template schema error'
+          }`,
+        );
       }
 
       // Artifact validation — only meaningful for review-only templates.
