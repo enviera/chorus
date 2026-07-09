@@ -343,6 +343,28 @@ export function spawnHeadless(opts: SpawnHeadlessOptions): HeadlessRun {
     }
   };
 
+  // ─── stdio pipe error guard ───────────────────────────────────────────
+  // A CLI that exits/closes a pipe early turns a pending write (stdin) or
+  // a flushed read (stdout/stderr) into an 'error' event (EPIPE/ECONNRESET)
+  // on that pipe Socket. With no listener it bubbles to uncaughtException
+  // (see the daemon-level guard in index.ts for the process-wide backstop).
+  // Handle it at the source: EPIPE/ECONNRESET are expected when the CLI
+  // closed stdio before we finished — swallow and let the child 'exit'
+  // handler report the real outcome. Anything else is surfaced as a
+  // stream_failure event so the chat shows an actionable error.
+  const onPipeError = (err: NodeJS.ErrnoException): void => {
+    const code = err?.code;
+    if (code === 'EPIPE' || code === 'ECONNRESET') return;
+    enqueue({
+      type: 'error',
+      kind: 'stream_failure',
+      message: `${opts.cli} stdio error: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  };
+  child.stdin.on('error', onPipeError);
+  child.stdout.on('error', onPipeError);
+  child.stderr.on('error', onPipeError);
+
   // ─── stdin payload ─────────────────────────────────────────────────────
   if (opts.stdinPayload !== undefined) {
     try {

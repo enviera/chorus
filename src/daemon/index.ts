@@ -86,6 +86,33 @@ let stopReaper: (() => void) | null = null;
 const errorDetector = new ErrorDetector();
 
 async function main(): Promise<void> {
+  // ─── Stream-pipe error guard (keep the daemon up on EPIPE) ───────────
+  // A reviewer/doer CLI that exits or closes its stdio early can leave a
+  // pending write on the pipe Socket. Node emits 'error' (EPIPE/ECONNRESET)
+  // on that Socket; with no per-stream listener it becomes an
+  // uncaughtException that — absent a handler here — kills the daemon
+  // mid-chat. (The daemon runs dist/daemon/index.js via a PM2-style fork,
+  // so bin/chorus.mjs's crash-hook is NOT installed in this process —
+  // which is why the raw `node:events throw er` reached the log instead
+  // of the crash-hook's formatted message.) These pipe errors are
+  // recoverable: the failed write simply didn't land, and spawnHeadless's
+  // exit/error flow already surfaces the reviewer failure to the chat.
+  // Swallow them so the daemon stays up; any other uncaughtException stays
+  // fatal + logged.
+  process.on('uncaughtException', (err: unknown) => {
+    const code = (err as NodeJS.ErrnoException | null | undefined)?.code;
+    if (code === 'EPIPE' || code === 'ECONNRESET') {
+      logger.warn(
+        { code, msg: err instanceof Error ? err.message : String(err) },
+        'non-fatal stream-pipe error swallowed (reviewer/doer CLI closed stdio early); daemon stays up',
+      );
+      return;
+    }
+    logger.error({ err }, 'daemon uncaughtException — exiting');
+    console.error('\n✗ Chorus daemon crashed (uncaughtException):', err);
+    process.exit(1);
+  });
+
   // Eager DB probe: trying to open the sqlite file at startup catches
   // permission errors, schema-migration crashes, and missing-init
   // issues *before* the first HTTP request fails opaquely.
