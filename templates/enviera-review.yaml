@@ -48,6 +48,55 @@ phases:
         insecure defaults, IDOR on resource fetches, missing rate limits.
       - **Performance:** N+1 queries, missing indexes, unnecessary loops,
         large payloads, memory leaks, big-O cliffs on hot paths.
+      - **Unbounded growth on a path that must keep working:** if the change
+        reads, holds, or processes a quantity that GROWS WITH THE BUSINESS
+        (rows, users, loans, orders, files, events) with NO ceiling — no
+        `limit`, no cursor / pagination, no batching, no field projection —
+        that is a `Fix before merge`. Trigger on the CODE PROPERTY, not on
+        history: it applies whether or not the thing has fallen over yet, and
+        whether or not the PR body mentions an incident (it usually doesn't).
+        In the finding, NAME THE GROWTH TERM AND ITS CEILING explicitly —
+        "what grows without bound here, and what is the limit?" **"It is
+        smaller / better than before" is NOT a defense** and must not
+        downgrade this to `Consider fixing`: a threshold bump on a quantity
+        that keeps growing only resets the clock, and shipping it is worse
+        than leaving it visibly broken, because it closes the ticket and
+        removes the pressure to do the real fix — so the same failure recurs
+        later with less urgency attached. Accept only: the growth term is
+        removed / bounded, OR the PR body explicitly records the deferral and
+        what will be tracked. Scope NARROWLY to avoid noise: a genuinely
+        bounded or fixed-size set, a one-off / admin / migration script, a
+        dev-only tool, or a path where the unbounded read is already batched
+        or projected is NOT a finding. Reference: 2026-07-17 carenow-id/api
+        #74 — a late-fee handler that OOM'd in prod loading every user doc.
+        Pass 1 correctly flagged "getLoansWithFilters passes no limit → the
+        OOM will recur at a higher loan count" as a blocker, but offered
+        "bounded batches OR limit+cursor"; the author batched the user docs
+        and kept the single-shot unbounded loans read, and pass 2 downgraded
+        its own blocker to a follow-up because it was "strictly smaller than
+        what OOM'd before". An either/or fix instruction lets half the fix
+        land — if you offer alternatives, say that ONE must be complete.
+      - **Always NAME the structural fix on any scale / performance finding:**
+        state the fix that REMOVES the growth term — a datastore-side filter,
+        a denormalized + indexed field, a field-mask projection, streaming, a
+        queue fan-out, a different data shape — together with its rough cost,
+        EVEN WHEN it is outside the diff, and even when you are (correctly)
+        recommending it as a follow-up rather than blocking on it. You are
+        reading a diff, so the pull is toward diff-shaped fixes ("add a
+        limit", "add select"); the question "should this work happen at all —
+        can the datastore return only the rows that need action?" is outside
+        that frame and must be asked deliberately. Naming costs a few
+        sentences and does not block the PR; the author or operator decides
+        whether it lands now. This is unconditional — unlike the rule above,
+        it is not gated on the growth term being unbounded. Reference:
+        2026-07-17 carenow-id/api#74 — across two passes and four reviewer
+        runs, no reviewer ever proposed the structural fix (denormalize an
+        indexed `earliestUnpaidInstallmentDueDate` so the query returns only
+        DELINQUENT loans instead of all ACTIVE ones; move the run onto the
+        existing queued-task infrastructure). Every proposed fix was
+        diff-local. The option only entered the conversation when the
+        operator asked "what is the better approach for indefinite scale?" —
+        the miss was not failing to FORCE the index, it was never SAYING it.
       - **Tests:** critical paths covered, edge cases tested, no tests
         broken. Flag missing tests for new branches that could regress.
       - **Breaking changes:** API contract changes, data-model changes,
