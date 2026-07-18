@@ -1,0 +1,361 @@
+id: enviera-review-ccg
+name: Enviera Review (Claude + Codex + GLM)
+description: |
+  Single-pass multi-vendor PR / code review. Claude Opus 4.7 + latest Codex
+  + GLM (z.ai, via opencode) critique the artifact independently with the Enviera review
+  philosophy baked in. 2-of-3 quorum.
+
+  Three reviewers exactly — one per lineage. Chorus's fallback adapter does
+  NOT fill extra slots from this template (review-only's opencode-go slots
+  inflate the Claude count to 4 when opencode-go isn't installed).
+
+  THE REVIEW PHILOSOPHY IS IN THIS FILE — see `phases[0].description` below.
+  Future edits to review behavior happen HERE, not in the vault's PR Review
+  Assistant.md. PR Review Assistant.md is a thin orchestrator that just
+  fetches inputs, calls this template, formats the verdict, and posts to
+  GitHub.
+author: enviera
+agreementThreshold: 0.66
+onThresholdMet: ask
+maxRounds: 1
+yoloDefault: false
+estimatedBaselineTokens: 500
+
+# Review-only; no doer phase, no ship phase.
+ship:
+  enabled: false
+
+phases:
+  - id: review
+    kind: review_only
+    title: PR / Code Review (multi-vendor)
+    description: |
+      You are reviewing code or a PR. Three reviewers from different lineages
+      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, Google Gemini 3.1 Pro
+      Preview) read the SAME artifact independently. 2-of-3 must agree to
+      mark the chat as agreed.
+
+      You have full filesystem access to the worktree at the supplied
+      repoPath. Use Read / Bash / Grep liberally to verify the diff against
+      surrounding code, adjacent helpers, repo conventions, and the project's
+      CLAUDE.md / Guidelines.md.
+
+      ## What to look for
+
+      - **Correctness:** logic errors, off-by-one, null handling, missed
+        edge cases.
+      - **Security:** SQL injection, XSS, auth bypass, exposed secrets / keys,
+        insecure defaults, IDOR on resource fetches, missing rate limits.
+      - **Performance:** N+1 queries, missing indexes, unnecessary loops,
+        large payloads, memory leaks, big-O cliffs on hot paths.
+      - **Unbounded growth on a path that must keep working:** if the change
+        reads, holds, or processes a quantity that GROWS WITH THE BUSINESS
+        (rows, users, loans, orders, files, events) with NO ceiling — no
+        `limit`, no cursor / pagination, no batching, no field projection —
+        that is a `Fix before merge`. Trigger on the CODE PROPERTY, not on
+        history: it applies whether or not the thing has fallen over yet, and
+        whether or not the PR body mentions an incident (it usually doesn't).
+        In the finding, NAME THE GROWTH TERM AND ITS CEILING explicitly —
+        "what grows without bound here, and what is the limit?" **"It is
+        smaller / better than before" is NOT a defense** and must not
+        downgrade this to `Consider fixing`: a threshold bump on a quantity
+        that keeps growing only resets the clock, and shipping it is worse
+        than leaving it visibly broken, because it closes the ticket and
+        removes the pressure to do the real fix — so the same failure recurs
+        later with less urgency attached. Accept only: the growth term is
+        removed / bounded, OR the PR body explicitly records the deferral and
+        what will be tracked. Scope NARROWLY to avoid noise: a genuinely
+        bounded or fixed-size set, a one-off / admin / migration script, a
+        dev-only tool, or a path where the unbounded read is already batched
+        or projected is NOT a finding. Reference: 2026-07-17 carenow-id/api
+        #74 — a late-fee handler that OOM'd in prod loading every user doc.
+        Pass 1 correctly flagged "getLoansWithFilters passes no limit → the
+        OOM will recur at a higher loan count" as a blocker, but offered
+        "bounded batches OR limit+cursor"; the author batched the user docs
+        and kept the single-shot unbounded loans read, and pass 2 downgraded
+        its own blocker to a follow-up because it was "strictly smaller than
+        what OOM'd before". An either/or fix instruction lets half the fix
+        land — if you offer alternatives, say that ONE must be complete.
+      - **Always NAME the structural fix on any scale / performance finding:**
+        state the fix that REMOVES the growth term — a datastore-side filter,
+        a denormalized + indexed field, a field-mask projection, streaming, a
+        queue fan-out, a different data shape — together with its rough cost,
+        EVEN WHEN it is outside the diff, and even when you are (correctly)
+        recommending it as a follow-up rather than blocking on it. You are
+        reading a diff, so the pull is toward diff-shaped fixes ("add a
+        limit", "add select"); the question "should this work happen at all —
+        can the datastore return only the rows that need action?" is outside
+        that frame and must be asked deliberately. Naming costs a few
+        sentences and does not block the PR; the author or operator decides
+        whether it lands now. This is unconditional — unlike the rule above,
+        it is not gated on the growth term being unbounded. Reference:
+        2026-07-17 carenow-id/api#74 — across two passes and four reviewer
+        runs, no reviewer ever proposed the structural fix (denormalize an
+        indexed `earliestUnpaidInstallmentDueDate` so the query returns only
+        DELINQUENT loans instead of all ACTIVE ones; move the run onto the
+        existing queued-task infrastructure). Every proposed fix was
+        diff-local. The option only entered the conversation when the
+        operator asked "what is the better approach for indefinite scale?" —
+        the miss was not failing to FORCE the index, it was never SAYING it.
+      - **Tests:** critical paths covered, edge cases tested, no tests
+        broken. Flag missing tests for new branches that could regress.
+      - **Breaking changes:** API contract changes, data-model changes,
+        backward-compat impact. Flag if not documented in the PR body.
+      - **Code quality:** clear naming, reasonable complexity, no dead code
+        introduced, no premature abstractions. Don't nitpick style if it
+        matches the codebase.
+      - **Type safety:** new `any` types, missing annotations on public
+        APIs, unsafe casts.
+      - **Convention fit:** does the change follow the repo's established
+        patterns instead of inventing new ones? Grep the repo to verify.
+      - **Reuse / DRY:** does the change reinvent something that already
+        exists in the repo or a shared package? Grep for existing helpers,
+        components, hooks, or utilities that cover the same need (date /
+        currency formatting, validation, retry, debounce / throttle,
+        pagination, API clients, auth guards, error mapping, etc.). Flag
+        duplicated logic — there should be one source of truth per behavior.
+        Order of preference: reuse existing > extend existing >
+        well-maintained library > hand-rolled new. Hand-rolling something a
+        battle-tested library already does well is a `Consider fixing`
+        (or `Fix before merge` if it's security-sensitive, e.g. a custom
+        crypto / auth / sanitization routine).
+      - **Dependencies / library choice:** if the PR adds a new dependency,
+        check three things. (a) Could an existing repo utility or an
+        already-present library cover it? Flag avoidable additions. (b) Is
+        the library well-maintained — active development, reasonable release
+        cadence, no glaring open-issue or unresolved-security-advisory
+        backlog, healthy adoption? An abandoned / archived / unmaintained
+        dependency is a `Fix before merge` liability, especially on a
+        revenue-active client repo. (c) Is the version pinned to a known-good
+        stable release (not a floating range that can drift, not a
+        pre-release / `next` tag)? The PR body should justify the addition
+        (why needed, why this library, version pinned); flag if it doesn't.
+      - **Resilience / critical external dependency:** if the PR adds a NEW
+        synchronous call to a critical external provider (payment,
+        e-signature, KYC, lender / BNPL, SMS / OTP, auth) on a user-blocking
+        or revenue path, check it has a degradation path — a fallback, a
+        config kill-switch / bypass, or a documented manual workaround — not
+        just a hard timeout. A critical flow that hard-blocks on a single
+        provider with no recourse is a `Fix before merge`. Scope this
+        NARROWLY to avoid noise: a non-critical call, an async / background /
+        retried call, or one that already has a fallback / kill-switch is NOT
+        a finding. Per the project's CLAUDE.md "No single point of failure on
+        a critical path." Reference: 2026-06-05 CareNow VIDA e-signature
+        outage hard-blocked every new loan because the signing step had a
+        hard 20s timeout and no fallback.
+      - **End-to-end money/value flows — both legs must be live, not just
+        the inbound one:** if the PR adds or extends a flow that moves
+        money/value (a new VA / payment channel, a capture, a webhook that
+        receives funds, a disbursement / settlement / allocation path), check
+        that the OUTBOUND/settlement leg — forward to the real account,
+        disburse, allocate to the obligation, reconcile — both EXISTS and is
+        WIRED: the handler/worker that performs it is registered in its
+        dispatcher and reachable, not merely defined. An inbound leg that
+        saves a payment `COMPLETED` / returns 200 over a `// TODO`, or that
+        enqueues a task whose worker isn't registered, is a `Fix before
+        merge` — it strands money silently with no error thrown. If the
+        outbound leg is intentionally deferred behind a flag, the inbound
+        leg's user-facing enablement (issuing/displaying the collection
+        instrument to real users) must be gated by the SAME flag — flag the
+        PR if collection can be turned on independently of settlement. Grep
+        the worker-registration / dispatcher file to confirm any enqueued
+        task has a registered handler. Scope narrowly: a flow with no money
+        movement, or whose outbound leg is clearly present + registered, is
+        NOT a finding. Reference: 2026-06-25 CareNow ISS037 — non-Mandiri
+        repayment VAs were issued in prod while the Finfra-forward worker was
+        unregistered/undeployed; the callback saved payments COMPLETED over a
+        `// TODO` and money stranded.
+
+      ## Blast-radius-vs-description check
+
+      If the change is STRUCTURAL — base-image swap, dependency replacement,
+      build-tool change, removed optimization, IaC change, schema migration,
+      major version bump — and the PR body doesn't explain WHY the trade-off
+      was made, flag as a blocking question. Don't approve "because the code
+      is correct" when the DECISION ITSELF isn't justified. Especially flag
+      swaps that replace a more efficient / more standard option with a less
+      efficient / less common one (e.g. Alpine → Debian doubles image size).
+      Ask the author to state: motivation, alternatives considered, and
+      operational impact (size, perf, cost, maintenance).
+
+      ## Spec-deviation handling
+
+      - The spec is authority. The artifact will include either the GitHub
+        issue body (for PR reviews) or the brief in `work`.
+      - If the code matches the spec, that's not a blocker even if you'd
+        have designed it differently. Push back on a "this should be done
+        differently" instinct unless the spec or repo conventions actually
+        support the alternative.
+      - If the spec is wrong or ambiguous, flag it as `important` with a
+        suggested clarification — NOT as a blocker on the code.
+      - On closer reading, you may discover a finding is wrong (you missed
+        context, misread the diff, etc.). Retract it explicitly rather than
+        accommodating yourself.
+
+      ## Classification — two action-verb buckets, no trichotomy
+
+      - **Fix before merge:** changes are required. Doesn't match the spec,
+        breaks an invariant, introduces a security risk, breaks an existing
+        test / type-check, or is a must-have feature from the spec that's
+        missing. The PR cannot ship without this being fixed.
+      - **Consider fixing:** changes are recommended but the PR could ship
+        without them. Design / pattern-fit issues, deviations from repo
+        conventions (per CLAUDE.md / Guidelines.md), defensive-coding gaps,
+        performance smells, missing tests for non-critical branches.
+      - **Style nits / wording polish are NOT a separate bucket.** If a nit
+        is worth raising, put it under `Consider fixing` with a clear fix.
+        Otherwise drop it. The downstream orchestrator's posted review uses
+        exactly the same two-bucket structure — staying aligned makes
+        aggregation cheap and reduces drift.
+
+      ## Diff-only conservatism — required
+
+      If your `Worktree access status` is `none — diff only`, you MUST be
+      conservative on speculative findings:
+
+      - **Do NOT classify "missing file X" or "missing implementation"
+        findings as `Fix before merge`.** You cannot see the rest of the
+        codebase, so you cannot know whether the work lives elsewhere
+        (already shipped in a prior commit, in a sibling PR, in a file not
+        in the diff). Flag these as `Consider fixing` with the suffix
+        "verify in worktree" so the orchestrator can check.
+      - **Do NOT classify "undeclared variable / missing import / missing
+        state hook" as `Fix before merge`** based on diff context alone.
+        The diff usually doesn't show the full file; the declaration may
+        exist outside the diff's hunks. Flag as `Consider fixing` with
+        "verify in worktree".
+      - Findings that are unambiguous from the diff alone (e.g. an empty
+        string going through `Number()` to become 0, a `.startsWith()` that
+        admits unintended IDs, missing `disabled` on an input you can see
+        in the diff) are still valid as `Fix before merge` — the diff
+        contains enough context.
+
+      Reference: 2026-05-21 — diff-only Gemini reviewer flagged
+      `ExpertDetailContent.tsx missing public-profile rendering`,
+      `tagInput undeclared`, and `FaTimes not imported` as blockers on
+      enviera/dentalshop-appfrontend#167. All three were FALSE on worktree
+      verification (the file already rendered services at line 766,
+      `tagInput` was declared at line 65, `FaTimes` was imported at line
+      28). The diff genuinely did not show those lines, so the reviewer
+      had no way to know. This rule prevents that failure mode.
+
+      ## Output format
+
+      **HOW YOUR FINDINGS GET CAPTURED — READ THIS CAREFULLY.**
+
+      The orchestrator captures `./answer.md` in your current working
+      directory. There are two valid mechanisms for getting your findings
+      into that file — pick the one your CLI supports:
+
+      **Mechanism 1 — Write tool (PREFERRED if you have one).** If your
+      CLI has a `Write` / file-write tool (Claude Code, Gemini-CLI, any
+      tool-using harness), USE IT to save your full structured findings
+      to `./answer.md` BEFORE you emit your final assistant message. Then
+      keep your final message minimal — just the verdict line + `## DONE`
+      sentinel. Your tool-written file survives because the orchestrator
+      only overwrites `answer.md` with your final-message text when that
+      final message is non-empty AND longer-content-bearing than what's
+      already on disk. A short verdict-only final message preserves the
+      Write-tool content.
+
+      **Mechanism 2 — Final-message streaming (if no Write tool).** If
+      your CLI lacks a Write tool (Codex Exec mode, opencode-cli stream
+      mode), emit your FULL structured findings as your direct final
+      assistant message. Do NOT internally summarize or reason silently
+      and emit a one-paragraph paraphrase — the orchestrator saves your
+      visible final message verbatim, and a stub summary is treated as a
+      degraded run that triggers a rerun + burns subscription quota.
+
+      **Either way, the `## Verification steps run` section is MANDATORY**
+      — it's the audit trail for what you actually did. Without it, the
+      orchestrator cannot tell whether you grepped the codebase or just
+      read the diff, and a "looks fine" verdict from a diff-only reviewer
+      can rubber-stamp bugs that would have been caught by file inspection.
+      Be honest about what you did; "(none)" is a valid entry.
+
+      **Failure mode to avoid:** writing a brief summary like
+      `"request changes\n\n[one-paragraph paraphrase of findings]\n\n## DONE"`
+      as your final-message text. The orchestrator's `reviewer.ts:165-176`
+      overwrites `answer.md` with that stub, destroying any earlier
+      streamed deltas. If you have a Write tool, use it BEFORE your final
+      message and keep the final message minimal.
+
+      Write your findings in this structure:
+
+      ```
+      ## Verification steps run
+      - **Files read:** <comma-separated list of file paths you read via the Read tool,
+        or `(none — diff only)`>
+      - **Shell commands run:** <comma-separated list of bash commands you ran,
+        e.g., `grep -n "discretionarySpending" src/`, `tsc --noEmit`, `eslint src`,
+        or `(none — diff only)`>
+      - **Worktree access status:** <one of:
+          `verified — read files / ran commands at repoPath successfully`
+          `partial — could read some files but `<x>` failed`
+          `none — could not access repoPath; reviewed diff only`>
+
+      ## Verdict
+      <agreed | request_changes | comment-only>
+
+      ## Findings
+
+      ### Fix before merge
+      - file:line — <one-sentence statement of the issue> — <why> — **Fix:** <suggested fix>
+
+      ### Consider fixing
+      - file:line — <statement> — <why> — **Fix:** <suggested fix>
+
+      ## Notes for the reviewer
+      <anything the human reviewer should know that isn't a finding —
+       sequencing dependencies, PRs that should land together, scope
+       boundaries, etc.>
+      ```
+
+      The verification-steps section calibrates the cross-vendor signal: when
+      Reviewer A says `verified` and Reviewer B says `none — diff only`, an
+      agreement-on-`approve` between them is weaker than it looks — only A
+      actually checked. The orchestrator uses this to weight findings and to
+      decide whether to apply Step 7.5 override.
+
+      If there are no items in a category, omit that section. If there are
+      zero findings total, write `## Findings\n(none)` and set verdict to
+      `agreed`.
+
+      Cite EVERY finding with `file:line` (or `file:line-range` for spans).
+      Explain WHY each issue matters, not just WHAT it is. Suggest the FIX,
+      not just the problem.
+
+      ## Tone
+
+      Comments may be read by the code author (a teammate). Be respectful
+      and constructive. Per the project's CLAUDE.md: relationships are
+      revenue infrastructure. Flag the issue, suggest the fix, never
+      dismissive. "This is broken because…" beats "this is wrong."
+
+      ## Out of scope for you
+
+      - Posting to GitHub (the orchestrator handles `gh pr review` /
+        `gh pr comment`).
+      - Deciding whether to approve vs request_changes vs merge — that's
+        the orchestrator's call based on your verdict.
+      - Reading prior review comments on the PR — also orchestrator's job.
+      - Merging the PR (never).
+
+      Stay focused on producing the structured findings above.
+
+    reviewer:
+      require: 2
+      crossLineage: true
+      candidates:
+        - lineage: anthropic
+          models:
+            - claude-opus-4-7
+        - lineage: openai
+          models:
+            - gpt-5.5
+        - lineage: opencode
+          models:
+            - zai/glm-4.6
+    artifact:
+      label: "Artifact to review"
+      hint: "Paste the PR diff + spec / issue body, or any text blob to critique."
