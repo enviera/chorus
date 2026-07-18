@@ -78,6 +78,38 @@ const CRED_PATHS: Record<CliLineage, () => string[]> = {
   openrouter: () => [],
 };
 
+/**
+ * Env-var credentials each lineage's CLI accepts INSTEAD OF an on-disk
+ * credential file. When one of these is set the CLI authenticates directly
+ * from the environment — there is no `login` command to run and no file to
+ * probe — so the file/Keychain check below would fail-closed on perfectly
+ * valid auth.
+ *
+ * This is exactly how the orchestrator session pods authenticate: the pod
+ * exports ANTHROPIC_AUTH_TOKEN (+ ANTHROPIC_BASE_URL) to point the `claude`
+ * CLI at the GLM/z.ai endpoint, with no `claude login` and no
+ * `.credentials.json`. The main agent runs on that auth successfully, so the
+ * reviewers spawned in the same pod must accept it too — otherwise the review
+ * engine reports "not logged in (no credential file found)" and returns
+ * no_review despite working credentials sitting in the environment.
+ */
+const ENV_AUTH_VARS: Record<CliLineage, readonly string[]> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  google: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+  opencode: ['OPENCODE_API_KEY'],
+  moonshot: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'],
+  openrouter: ['OPENROUTER_API_KEY'],
+};
+
+function hasEnvAuth(lineage: CliLineage): boolean {
+  const vars = ENV_AUTH_VARS[lineage] ?? [];
+  return vars.some((v) => {
+    const val = process.env[v];
+    return typeof val === 'string' && val.trim().length > 0;
+  });
+}
+
 const LOGIN_HINT: Record<CliLineage, string> = {
   anthropic: 'Run `claude login` in a terminal.',
   openai: 'Run `codex login` in a terminal.',
@@ -156,6 +188,15 @@ export async function precheckLineage(lineage: CliLineage): Promise<PrecheckResu
   // OpenRouter has no on-disk creds — the shim itself errors with
   // auth_missing when the secrets-table key is absent. Skip the file probe.
   if (lineage === 'openrouter') {
+    return { ok: true };
+  }
+
+  // Layer 1.5: env-var auth. If the CLI's API-key / auth-token env var is set,
+  // the CLI authenticates straight from the environment — there is no login
+  // command and no credential file to find, so the file/Keychain probe below
+  // would fail-closed on valid auth. This is how the orchestrator GLM pods
+  // run (ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL → GLM endpoint).
+  if (hasEnvAuth(lineage)) {
     return { ok: true };
   }
 
