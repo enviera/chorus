@@ -20,7 +20,7 @@ import {
   listTemplates,
   listPersonas,
   invokePersona,
-  CreateChatSchema,
+  CreateChatShape,
   WaitForChatSchema,
   GetChatStatusSchema,
   ListBlockedSchema,
@@ -28,8 +28,15 @@ import {
   CancelChatSchema,
   ListTemplatesSchema,
   ListPersonasSchema,
-  InvokePersonaSchema,
+  InvokePersonaShape,
 } from "./tools.js";
+
+// The MCP SDK's `registerTool({ inputSchema })` wants a ZodRawShape (the plain
+// `{ field: zodType }` record), not a wrapped `z.object(...)`. Passing the
+// wrapped schema publishes an empty input schema and the harness strips every
+// argument (see CreateChatShape in ./tools). `.shape` gives the raw shape for
+// the plain object schemas; the two transform schemas export their shape
+// directly (CreateChatShape / InvokePersonaShape).
 
 // Read version from the shipped package.json — single source of truth,
 // per feedback_version_from_package_json. __dirname is dist/mcp (built)
@@ -61,7 +68,7 @@ mcpServer.registerTool(
     description:
       "Create a new chat. Returns immediately with chatId, status, and URL. Reviewers run async. " +
       "For review-only templates (e.g. template='review-only'), supply `artifact` with the text/diff to review — `work` becomes the framing brief.",
-    inputSchema: CreateChatSchema,
+    inputSchema: CreateChatShape,
   },
   async (input) => {
     const result = await createChat(input);
@@ -76,7 +83,7 @@ mcpServer.registerTool(
   {
     description:
       "Long-poll a chat until terminal state. Blocks until status is approved, merged, blocked, cancelled, or failed.",
-    inputSchema: WaitForChatSchema,
+    inputSchema: WaitForChatSchema.shape,
   },
   async (input, extra) => {
     const progressEvents: Record<string, unknown>[] = [];
@@ -160,7 +167,7 @@ mcpServer.registerTool(
   {
     description:
       "Get current chat status without blocking. Returns status, phase, progress, and blocked flag.",
-    inputSchema: GetChatStatusSchema,
+    inputSchema: GetChatStatusSchema.shape,
   },
   async (input) => {
     const result = await getChatStatus(input);
@@ -175,7 +182,7 @@ mcpServer.registerTool(
   {
     description:
       "List all chats currently waiting on user input. Lets you surface them in one prompt.",
-    inputSchema: ListBlockedSchema,
+    inputSchema: ListBlockedSchema.shape,
   },
   async (input) => {
     const result = await listBlocked(input);
@@ -190,7 +197,7 @@ mcpServer.registerTool(
   {
     description:
       "Unblock a chat after the user has decided. Same effect as clicking the dashboard button.",
-    inputSchema: ResumeChatSchema,
+    inputSchema: ResumeChatSchema.shape,
   },
   async (input) => {
     const result = await resumeChat(input);
@@ -205,7 +212,7 @@ mcpServer.registerTool(
   {
     description:
       "Hard cancel — kills the tmux session, stops reviewers, marks chat cancelled.",
-    inputSchema: CancelChatSchema,
+    inputSchema: CancelChatSchema.shape,
   },
   async (input) => {
     const result = await cancelChat(input);
@@ -220,7 +227,7 @@ mcpServer.registerTool(
   {
     description:
       "List all available templates (built-in and user-created). Use to discover templates for create_chat.",
-    inputSchema: ListTemplatesSchema,
+    inputSchema: ListTemplatesSchema.shape,
   },
   async (input) => {
     const result = await listTemplates(input);
@@ -235,7 +242,7 @@ mcpServer.registerTool(
   {
     description:
       "List all reviewer personas (built-in and user-defined). Each persona is a worldview/role: e.g. Sentinel (security), Cartographer (cross-platform), Translator (UX). Use to discover the personaId for invoke_persona.",
-    inputSchema: ListPersonasSchema,
+    inputSchema: ListPersonasSchema.shape,
   },
   async (input) => {
     const result = await listPersonas(input);
@@ -250,7 +257,7 @@ mcpServer.registerTool(
   {
     description:
       "Fire a chat that wears a chosen persona. The persona's system prompt is prepended to your brief so the reviewer audits with that worldview (security / cross-platform / UX / cost / etc.). Use list_personas to discover ids. Returns chatId, status, and URL — work runs async.",
-    inputSchema: InvokePersonaSchema,
+    inputSchema: InvokePersonaShape,
   },
   async (input) => {
     const result = await invokePersona(input);

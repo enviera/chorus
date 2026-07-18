@@ -109,30 +109,46 @@ function parseTemplateRow(row: RawTemplateRow): {
  * The legacy `template` alias is accepted so existing scripts keep
  * working through v0.7; will be dropped in v0.8.
  */
+/**
+ * Raw field shape (ZodRawShape) for create_chat.
+ *
+ * The MCP SDK's `registerTool({ inputSchema })` expects a ZodRawShape — the
+ * plain `{ field: zodType }` record — NOT a wrapped `z.object(...)` and
+ * ESPECIALLY not a `z.object(...).transform(...)` (a ZodEffects). Handing the
+ * SDK the wrapped schema makes `normalizeObjectSchema` fail to find the object
+ * body, so the published tool advertises an empty input schema
+ * (`properties: {}`, `additionalProperties: false`); the harness then strips
+ * every argument (`work` / `artifact` / `repoPath` / …) before the call and
+ * the daemon rejects it with `work: Required`. Export the shape separately so
+ * the tool registration uses it directly while `CreateChatSchema` (below)
+ * keeps the `.transform()` for the handler's own `.parse()`.
+ */
+export const CreateChatShape = {
+  work: z.string().min(1, "work prompt is required"),
+  templateId: z.string().optional(),
+  template: z.string().optional(),
+  files: z.array(z.string()).optional(),
+  /**
+   * Artifact text for review-only templates (e.g. `templateId: "review-only"`).
+   * Required when the chosen template's first phase has `kind: review_only`.
+   * Ignored for full-pipeline templates. Capped by the template's
+   * artifact.maxBytes (default 1 MiB).
+   */
+  artifact: z.string().optional(),
+  /**
+   * Absolute path to a repository / worktree to make available to the
+   * doer AND reviewers. When set:
+   *   - doer's CWD = repoPath (existing behavior)
+   *   - reviewers' CWD = repoPath (mirrors doer; was previously hardcoded
+   *     to the per-chat chat dir, giving reviewers no codebase access)
+   * The daemon validates the path is absolute, exists, is a directory,
+   * and resolves symlinks to a canonical path before storing.
+   */
+  repoPath: z.string().optional(),
+} as const;
+
 export const CreateChatSchema = z
-  .object({
-    work: z.string().min(1, "work prompt is required"),
-    templateId: z.string().optional(),
-    template: z.string().optional(),
-    files: z.array(z.string()).optional(),
-    /**
-     * Artifact text for review-only templates (e.g. `templateId: "review-only"`).
-     * Required when the chosen template's first phase has `kind: review_only`.
-     * Ignored for full-pipeline templates. Capped by the template's
-     * artifact.maxBytes (default 1 MiB).
-     */
-    artifact: z.string().optional(),
-    /**
-     * Absolute path to a repository / worktree to make available to the
-     * doer AND reviewers. When set:
-     *   - doer's CWD = repoPath (existing behavior)
-     *   - reviewers' CWD = repoPath (mirrors doer; was previously hardcoded
-     *     to the per-chat chat dir, giving reviewers no codebase access)
-     * The daemon validates the path is absolute, exists, is a directory,
-     * and resolves symlinks to a canonical path before storing.
-     */
-    repoPath: z.string().optional(),
-  })
+  .object(CreateChatShape)
   .transform((input) => ({
     ...input,
     // `??` only falls through on null/undefined; an empty string would
@@ -172,15 +188,22 @@ export const ListTemplatesSchema = z.object({});
 
 export const ListPersonasSchema = z.object({});
 
+/**
+ * Raw field shape (ZodRawShape) for invoke_persona. See CreateChatShape above
+ * for why the SDK needs the raw shape rather than the wrapped/transformed
+ * schema.
+ */
+export const InvokePersonaShape = {
+  personaId: z.string().min(1, "personaId is required"),
+  brief: z.string().min(1, "brief is required"),
+  files: z.array(z.string()).optional(),
+  templateId: z.string().optional(),
+  template: z.string().optional(),
+  repoPath: z.string().optional(),
+} as const;
+
 export const InvokePersonaSchema = z
-  .object({
-    personaId: z.string().min(1, "personaId is required"),
-    brief: z.string().min(1, "brief is required"),
-    files: z.array(z.string()).optional(),
-    templateId: z.string().optional(),
-    template: z.string().optional(),
-    repoPath: z.string().optional(),
-  })
+  .object(InvokePersonaShape)
   .transform((input) => ({
     ...input,
     // `??` only falls through on null/undefined; an empty string would
