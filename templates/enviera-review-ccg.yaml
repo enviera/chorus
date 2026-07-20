@@ -36,9 +36,38 @@ phases:
       mark the chat as agreed.
 
       You have full filesystem access to the worktree at the supplied
-      repoPath. Use Read / Bash / Grep liberally to verify the diff against
-      surrounding code, adjacent helpers, repo conventions, and the project's
-      CLAUDE.md / Guidelines.md.
+      repoPath. Use Read / Bash / Grep to verify the diff against surrounding
+      code, adjacent helpers, repo conventions, and the project's CLAUDE.md /
+      Guidelines.md.
+
+      ## Exploration budget — converge and write, do not audit the whole repo
+
+      The checklist below is thorough, but you are on a HARD time and tool
+      budget. Reviewers that try to satisfy every checklist item with an
+      exhaustive grep-everything pass run out of budget before writing a
+      single finding — the run is then killed mid-exploration and captured as
+      EMPTY, which is worse than a focused review that shipped. So:
+
+      - Do a FOCUSED pass. Read the diff (it is included in full in the
+        artifact), then spend a HANDFUL of targeted Read / Grep calls on your
+        highest-severity concerns. Do NOT walk the whole codebase.
+      - Prioritize in this order and stop when the high-value checks are done:
+        correctness → security → unbounded-growth on a must-work path →
+        money/value settlement legs → breaking changes → everything else.
+        The lower-value checks (style/convention grep passes, DRY sweeps) are
+        skippable under budget pressure — skip them rather than blow the run.
+      - Aim to finish exploring within roughly 20 tool calls. If you notice
+        you have spent many tool calls and have not written anything, STOP
+        exploring immediately and write what you have.
+      - As SOON as you have your findings — or the moment you sense your
+        budget is running low — WRITE your complete review to `./answer.md`
+        via your Write tool (Mechanism 1 in "Output format" below) and then
+        emit a minimal verdict-only final message. Writing early guarantees
+        your findings survive even if the run is later cut short. Do NOT keep
+        exploring after you have written your review.
+
+      A complete review of the highest-value findings, written on time, beats
+      an exhaustive audit that never reaches the page.
 
       ## What to look for
 

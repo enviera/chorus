@@ -102,6 +102,12 @@ export async function runReviewerHeadless(args: {
     networkAccess: perms.networkAccess,
     abortSignal,
     timeoutMs: phase.timeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS,
+    // Generous turn backstop (claude shim only). A focused review converges
+    // in ~13 turns and even a thorough one stays well under 40; 50 never
+    // cuts a legitimate review but force-stops a pathological loop before it
+    // burns the whole timeout. Incremental capture (--include-partial-
+    // messages) means a stopped run still leaves its accumulated findings.
+    maxTurns: 50,
   });
 
   // Safety net: if the stream closes without emitting ANY event (no text,

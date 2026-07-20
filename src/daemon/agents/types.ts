@@ -248,6 +248,14 @@ export interface HeadlessSpawnOptions {
   abortSignal?: AbortSignal;
   /** Hard timeout — process is killed after this. Default 600_000 (10 min). */
   timeoutMs?: number;
+  /**
+   * Hard cap on agent-loop turns (claude `--max-turns`). Backstop against a
+   * reviewer that crawls the whole repo and never converges: without it, a
+   * thorough review template can push claude-opus into 17+ tool-call turns
+   * that burn the entire timeout mid-exploration and get captured EMPTY.
+   * Only the claude shim maps this today; other shims ignore it.
+   */
+  maxTurns?: number;
   /** Per-account isolation (codex multi-auth). */
   accountId?: string;
   /**

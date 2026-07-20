@@ -75,7 +75,25 @@ export const claudeShim: AgentShim = {
   runHeadless(opts: HeadlessSpawnOptions): AsyncIterable<AgentEvent> {
     preTrustClaudeWorkspace(opts.cwd);
 
-    const args = ['--print', '--output-format', 'stream-json', '--verbose'];
+    // `--include-partial-messages` is REQUIRED for incremental capture.
+    // Without it, current Claude Code (verified 2.1.214) emits only
+    // `system` / assembled `assistant` / final `result` events — NO
+    // `stream_event` / `content_block_delta`, so parseClaude's text_delta
+    // path never fires and the ONLY text we capture is the final `result`
+    // event. A reviewer that is killed, times out, or errors before that
+    // final event then leaves answer.md at 0 bytes even though it produced
+    // a full review in assistant blocks — the exact empty-reviewer failure
+    // seen when two claude reviewers crawl a worktree concurrently on a
+    // shared-CPU pod and both blow the phase timeout mid-exploration. With
+    // this flag Claude streams text_delta events the parser already
+    // handles, so accumulated review text survives an early termination.
+    const args = [
+      '--print',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+    ];
 
     // Root-aware permission mode. Claude CLI refuses both
     // `--dangerously-skip-permissions` AND `--permission-mode
@@ -119,6 +137,16 @@ export const claudeShim: AgentShim = {
 
     if (opts.model) {
       args.push('--model', opts.model);
+    }
+
+    // Turn cap backstop. A thorough review template invites claude-opus to
+    // grep/read exhaustively; under bypassPermissions it obliges and can burn
+    // the whole timeout mid-crawl without ever writing its review (captured
+    // EMPTY). --max-turns force-stops the loop; paired with the template's
+    // "write to ./answer.md early" directive, a stopped reviewer still leaves
+    // its findings on disk. Only set when the caller asks (reviewers do).
+    if (typeof opts.maxTurns === 'number' && opts.maxTurns > 0) {
+      args.push('--max-turns', String(Math.floor(opts.maxTurns)));
     }
 
     // Extra READ dirs (reviewers pass the chat's repoPath). Claude already
