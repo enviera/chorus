@@ -89,27 +89,6 @@ export async function runReviewerHeadless(args: {
   fs.writeFileSync(answerFile, '');
   const writer = new StreamFileWriter(answerFile);
 
-  const stream = shim.runHeadless({
-    // cwd stays the per-chat reviewer dir (NOT repoPath) so `./answer.md`
-    // capture and the chat-dir write boundary are preserved. repoPath is
-    // granted as a READ-only extra dir via readDirs instead.
-    cwd: reviewerDir,
-    readDirs: repoPath ? [repoPath] : undefined,
-    promptText: askContent,
-    model: candidateModel,
-    sandbox: perms.sandboxProfile,
-    autoApprove: perms.autoApprovePrompts,
-    networkAccess: perms.networkAccess,
-    abortSignal,
-    timeoutMs: phase.timeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS,
-    // Generous turn backstop (claude shim only). A focused review converges
-    // in ~13 turns and even a thorough one stays well under 40; 50 never
-    // cuts a legitimate review but force-stops a pathological loop before it
-    // burns the whole timeout. Incremental capture (--include-partial-
-    // messages) means a stopped run still leaves its accumulated findings.
-    maxTurns: 50,
-  });
-
   // Safety net: if the stream closes without emitting ANY event (no text,
   // no error, no message_done), the reviewer subprocess silently produced
   // nothing — most often a CLI that wrote model output to /dev/tty instead
@@ -120,6 +99,36 @@ export async function runReviewerHeadless(args: {
   let eventCount = 0;
 
   try {
+    // INSIDE the try on purpose: a shim's runHeadless can throw
+    // SYNCHRONOUSLY before the child ever spawns (observed: claude's
+    // pre-trust marker write hitting EROFS on the orchestrator pods'
+    // read-only ~/.claude.json mount). When this call sat outside the
+    // try, that throw skipped the catch AND the finally's failure-stub
+    // writer — the reviewer died as a silent null with a 0-byte
+    // answer.md and no _attempts.jsonl row. Inside the try, the same
+    // throw lands in the catch below: cli_error event, stub, attempts
+    // trail — a diagnosable failure instead of an invisible one.
+    const stream = shim.runHeadless({
+      // cwd stays the per-chat reviewer dir (NOT repoPath) so `./answer.md`
+      // capture and the chat-dir write boundary are preserved. repoPath is
+      // granted as a READ-only extra dir via readDirs instead.
+      cwd: reviewerDir,
+      readDirs: repoPath ? [repoPath] : undefined,
+      promptText: askContent,
+      model: candidateModel,
+      sandbox: perms.sandboxProfile,
+      autoApprove: perms.autoApprovePrompts,
+      networkAccess: perms.networkAccess,
+      abortSignal,
+      timeoutMs: phase.timeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS,
+      // Generous turn backstop (claude shim only). A focused review converges
+      // in ~13 turns and even a thorough one stays well under 40; 50 never
+      // cuts a legitimate review but force-stops a pathological loop before it
+      // burns the whole timeout. Incremental capture (--include-partial-
+      // messages) means a stopped run still leaves its accumulated findings.
+      maxTurns: 50,
+    });
+
     for await (const event of stream) {
       eventCount += 1;
       if (event.type === 'text_delta') {

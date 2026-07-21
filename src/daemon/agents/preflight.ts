@@ -53,19 +53,32 @@ export function preTrustClaudeWorkspace(cwd: string): void {
     hasTrustDialogAccepted: true,
   };
 
-  fs.writeFileSync(
-    configPath,
-    JSON.stringify(
-      {
-        ...config,
-        projects,
-        hasCompletedClaudeInChromeOnboarding: true,
-      },
-      null,
-      2,
-    ),
-    'utf-8',
-  );
+  // Best-effort, NEVER throw. ~/.claude.json can be unwritable — the
+  // orchestrator's session pods mount it as a READ-ONLY tmpfs (part of the
+  // claude-creds projection), so this write fails with EROFS there. Before
+  // this guard, that throw propagated synchronously out of
+  // claudeShim.runHeadless BEFORE the child spawned, past every failure-stub
+  // writer, and every claude reviewer died as a silent 0-byte answer.md with
+  // no error recorded anywhere. Headless mode auto-skips the trust dialog
+  // (`claude -p` docs), and the tmux path degrades to a one-time interactive
+  // trust prompt — a failed marker write must never kill the spawn.
+  try {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          ...config,
+          projects,
+          hasCompletedClaudeInChromeOnboarding: true,
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  } catch {
+    /* read-only config (EROFS/EACCES) — skip; trust handling degrades gracefully */
+  }
 }
 
 /**

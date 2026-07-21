@@ -420,6 +420,28 @@ export async function seedOpencodeVoicesAsync(): Promise<{
   const isOpencodeGoModel = (qualified: string): boolean =>
     qualified.startsWith('opencode-go/');
 
+  // Operator-declared extra enables (CHORUS_OPENCODE_ENABLED_MODELS): a
+  // comma-separated list of qualified model names to seed ENABLED even
+  // though they're outside the opencode-go default. Entries ending in `/*`
+  // are prefix matches (`zai/*`), otherwise exact (`zai/glm-4.6`). Why:
+  // the first-boot default deliberately leaves non-Go gateways disabled so
+  // pay-as-you-go gateways never bill silently — but a custom provider the
+  // operator wired up with their OWN subscription token (e.g. the z.ai
+  // coding plan via OPENCODE_CONFIG) is explicit intent to use it. Without
+  // this, ephemeral environments (orchestrator session pods — every boot is
+  // a first boot) can never seed an enabled zai/glm voice, so a template's
+  // opencode/GLM reviewer slot silently falls back to another lineage and a
+  // "3-vendor" panel degrades to two vendors. Net-new rows only — existing
+  // rows keep whatever the user toggled.
+  const extraEnabledPatterns = (process.env.CHORUS_OPENCODE_ENABLED_MODELS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const isExtraEnabledModel = (qualified: string): boolean =>
+    extraEnabledPatterns.some((p) =>
+      p.endsWith('/*') ? qualified.startsWith(p.slice(0, -1)) : qualified === p,
+    );
+
   const migration = await readOpencodeMigration();
   const isFirstBoot = existingOpencode.length === 0;
 
@@ -452,7 +474,11 @@ export async function seedOpencodeVoicesAsync(): Promise<{
     if (wasAutoMissing) {
       enabledOverride = true;
     } else if (!before) {
-      if (migration) {
+      if (isExtraEnabledModel(qualified)) {
+        // Operator-declared enable (env allowlist) — wins for net-new rows
+        // regardless of first-boot/migration state; see comment above.
+        enabledOverride = true;
+      } else if (migration) {
         enabledOverride = migrationFor(migration, 'opencode', qualified) ?? false;
       } else if (isFirstBoot) {
         enabledOverride = isOpencodeGoModel(qualified);
