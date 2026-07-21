@@ -23,10 +23,20 @@ export function verdictFromReviewerText(content: string): boolean | null {
   // `do not approve` / `cannot approve`. Both spellings are common in real
   // reviews. The optional `['’]?t` segment catches both straight (') and
   // typographic (’) apostrophes — LLMs emit the latter often.
+  // "disagree(?:d|s|ing)?": the bare \bdisagree\b failed to match the past
+  // tense — "disagreed" has no word boundary before the trailing d, so a
+  // reviewer writing "I disagreed with this approach" parsed as ambiguous.
   const negatives =
-    /\b(request changes|requesting changes|disagree|reject(?:ed|ing)?|blocker|(?:do not|don['’]?t) (?:approve|merge)|(?:cannot|can['’]?t) (?:approve|merge)|nack)\b/;
+    /\b(request changes|requesting changes|disagree(?:d|s|ing)?|reject(?:ed|ing)?|blocker|(?:do not|don['’]?t) (?:approve|merge)|(?:cannot|can['’]?t) (?:approve|merge)|nack)\b/;
+  // "agree(?:d|s)?": the review templates describe the quorum as reviewers
+  // AGREEING ("2-of-3 must agree…"), so reviewers write `## Verdict\nagreed`
+  // — which the old list didn't contain. Result: every "agreed" verdict
+  // parsed null → tallied as FAILED → a unanimous panel (approve + agreed +
+  // agreed) produced verdict=request_changes below quorum (observed
+  // 2026-07-21, appfrontend#312 panel). Negatives run first, and "disagreed"
+  // can't false-positive here: \b before "agree" fails mid-word.
   const positives =
-    /\b(approve(?:d|s)?|lgtm|looks good to me|no concerns|ship it|ack)\b/;
+    /\b(approve(?:d|s)?|agree(?:d|s)?|lgtm|looks good to me|no concerns|ship it|ack)\b/;
 
   // Check verdict keywords FIRST — a terse but explicit reply like
   // "approve ## DONE" (15 chars after sentinel strip) is unambiguous and
