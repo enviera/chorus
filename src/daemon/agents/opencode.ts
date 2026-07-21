@@ -177,10 +177,12 @@ export const opencodeShim: AgentShim = {
     const workDir =
       opts.readDirs && opts.readDirs.length > 0 ? opts.readDirs[0] : opts.cwd;
 
-    // Sidestep both ARG_MAX and shell-escape pitfalls by stashing the prompt
-    // on disk (inside the workspace so opencode's read tool may access it).
+    // Prompt-file path for the ARG_MAX fallback (>90KB prompts only —
+    // see directive below). Inside the workspace so opencode's read tool
+    // may access it. Written lazily in the fallback branch: the direct-argv
+    // path must NOT touch the repo at all (a read-only workDir made the
+    // unconditional write EACCES-throw before the child ever spawned).
     const promptPath = path.join(workDir, '.chorus-prompt.md');
-    fs.writeFileSync(promptPath, opts.promptText, 'utf-8');
 
     // CRITICAL: Single-line message. Never lead with `/` or `@`.
     // Plain text path reference matches the tmux formatPrompt pattern.
@@ -196,10 +198,15 @@ export const opencodeShim: AgentShim = {
     // for the flags + wrapper. Newlines in argv are fine (no shell).
     const ARGV_PROMPT_LIMIT = 90_000;
     const directPrompt = Buffer.byteLength(opts.promptText, 'utf-8') <= ARGV_PROMPT_LIMIT;
-    const directive = directPrompt
-      ? `${opts.promptText}\n\nRespond with your full answer in this conversation, ending with ## DONE.`
-      : `Open the file at this absolute path using your read tool: ${promptPath} ` +
+    let directive: string;
+    if (directPrompt) {
+      directive = `${opts.promptText}\n\nRespond with your full answer in this conversation, ending with ## DONE.`;
+    } else {
+      fs.writeFileSync(promptPath, opts.promptText, 'utf-8');
+      directive =
+        `Open the file at this absolute path using your read tool: ${promptPath} ` +
         `— follow the instructions inside exactly and respond with your full answer in this conversation, ending with ## DONE.`;
+    }
 
     const opencodeArgs = ['run', '--format', 'json'];
     if (opts.model) opencodeArgs.push('--model', opts.model);
