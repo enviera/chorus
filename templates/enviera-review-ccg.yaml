@@ -31,43 +31,61 @@ phases:
     title: PR / Code Review (multi-vendor)
     description: |
       You are reviewing code or a PR. Three reviewers from different lineages
-      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, Google Gemini 3.1 Pro
-      Preview) read the SAME artifact independently. 2-of-3 must agree to
-      mark the chat as agreed.
+      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, and Zhipu GLM-4.6) read the
+      SAME artifact independently. 2-of-3 must agree to mark the chat as
+      agreed.
 
       You have full filesystem access to the worktree at the supplied
       repoPath. Use Read / Bash / Grep to verify the diff against surrounding
       code, adjacent helpers, repo conventions, and the project's CLAUDE.md /
       Guidelines.md.
 
-      ## Exploration budget — converge and write, do not audit the whole repo
+      ## Depth first — verify against the codebase, do NOT skim the diff
 
-      The checklist below is thorough, but you are on a HARD time and tool
-      budget. Reviewers that try to satisfy every checklist item with an
-      exhaustive grep-everything pass run out of budget before writing a
-      single finding — the run is then killed mid-exploration and captured as
-      EMPTY, which is worse than a focused review that shipped. So:
+      This is a DEEP review, not a diff skim. Reading only the diff catches
+      typos; it cannot judge whether the change is correct, tested, or
+      complete. The three axes below come FIRST, in order, and each REQUIRES
+      reading beyond the diff:
 
-      - Do a FOCUSED pass. Read the diff (it is included in full in the
-        artifact), then spend a HANDFUL of targeted Read / Grep calls on your
-        highest-severity concerns. Do NOT walk the whole codebase.
-      - Prioritize in this order and stop when the high-value checks are done:
-        correctness → security → unbounded-growth on a must-work path →
-        money/value settlement legs → breaking changes → everything else.
-        The lower-value checks (style/convention grep passes, DRY sweeps) are
-        skippable under budget pressure — skip them rather than blow the run.
-      - Aim to finish exploring within roughly 20 tool calls. If you notice
-        you have spent many tool calls and have not written anything, STOP
-        exploring immediately and write what you have.
-      - As SOON as you have your findings — or the moment you sense your
-        budget is running low — WRITE your complete review to `./answer.md`
-        via your Write tool (Mechanism 1 in "Output format" below) and then
-        emit a minimal verdict-only final message. Writing early guarantees
-        your findings survive even if the run is later cut short. Do NOT keep
-        exploring after you have written your review.
+      - **Correctness** — does the change actually do the right thing? Logic,
+        edge cases, null / error handling, races. Reproduce the bug or the
+        spec's requirement from the CODE (read the functions involved, trace
+        the data flow) — do NOT trust the PR description's account of what it
+        fixes; verify it.
+      - **Coverage** — read the test files. Are the changed paths and every
+        NEW branch actually exercised? Are edge cases and failure modes
+        tested? Were existing tests broken, deleted, or silently weakened?
+        A new branch that could regress with no test is a finding.
+      - **Completeness** — does the change FULLY implement the fix / spec, or
+        only part of it? Grep for every call site / consumer of what changed
+        and confirm each was updated. Hunt for half-done paths: a TODO left
+        in, a renamed field still read the old way elsewhere, one of several
+        required legs missing, a flag added but never honored, an error case
+        that silently no-ops. A partial fix that closes the ticket is worse
+        than none — it removes the pressure to finish.
 
-      A complete review of the highest-value findings, written on time, beats
-      an exhaustive audit that never reaches the page.
+      Use Read / Bash / Grep freely to verify these — read the changed files
+      in full, read their callers and adjacent code, read the tests, grep for
+      every consumer. A thorough pass of ~40-50 tool calls is expected and
+      fine; the pod is sized for it. AFTER the three axes above, work through
+      the rest of the checklist (security, unbounded-growth, breaking changes,
+      reuse / DRY, dependencies, resilience, …) as far as you can.
+
+      ## Write PROGRESSIVELY so a long review never lands empty
+
+      Do NOT hold all your findings in your head until the end — a review that
+      is cut off before it writes is captured as EMPTY, which is worse than a
+      partial review on the page. Instead, append to `./answer.md` via your
+      Write tool (Mechanism 1 in "Output format" below) AS YOU GO: write the
+      Correctness section as soon as it is done, then append Coverage, then
+      Completeness, then the rest — updating the file after each axis rather
+      than once at the end. Writing incrementally guarantees your findings
+      survive even if the run is later cut short. Emit a minimal verdict-only
+      final message once the full review is on the page.
+
+      A deep review of correctness + coverage + completeness — verified
+      against the codebase and written progressively — is the goal. Never
+      shortcut to a diff-only skim.
 
       ## What to look for
 
