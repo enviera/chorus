@@ -163,10 +163,23 @@ export const opencodeShim: AgentShim = {
     const sandboxError = sandboxFailClosed(opts.sandbox, 'opencode');
     if (sandboxError) return sandboxError;
 
+    // Workspace = the REPO when the caller granted one (readDirs[0]), not
+    // the per-chat reviewer dir. opencode scopes its read/list/grep tools to
+    // the cwd workspace, so with cwd=reviewerDir every read of a worktree
+    // file failed — and GLM-4.6's recovery from failed reads is
+    // nondeterministic: sometimes it degrades to a diff-only review,
+    // sometimes it silently gives up after step 1 (observed 2026-07-21:
+    // 71-output-token runs whose entire text was "I'll read the file…",
+    // captured as a 10-byte answer). Running IN the repo makes the tools
+    // actually work, which is the whole point of granting repoPath. The
+    // answer file is still written by the RUNNER from captured stdout, so
+    // the cwd move doesn't affect answer.md capture.
+    const workDir =
+      opts.readDirs && opts.readDirs.length > 0 ? opts.readDirs[0] : opts.cwd;
+
     // Sidestep both ARG_MAX and shell-escape pitfalls by stashing the prompt
-    // on disk. The chat dir already exists (the runner creates it before
-    // spawning), so this never fails on first call.
-    const promptPath = path.join(opts.cwd, 'prompt.md');
+    // on disk (inside the workspace so opencode's read tool may access it).
+    const promptPath = path.join(workDir, '.chorus-prompt.md');
     fs.writeFileSync(promptPath, opts.promptText, 'utf-8');
 
     // CRITICAL: Single-line message. Never lead with `/` or `@`.
@@ -174,9 +187,19 @@ export const opencodeShim: AgentShim = {
     // Don't tell opencode to write answer.md — the runner captures stdout
     // JSON via parseOpencodeExit and writes the file itself; a tool-side
     // write would race with the runner's clobber on message_done.
-    const directive =
-      `Open the file at this absolute path using your read tool: ${promptPath} ` +
-      `— follow the instructions inside exactly and respond with your full answer in this conversation, ending with ## DONE.`;
+    //
+    // Prompt delivery: DIRECT argv whenever it fits. The read-the-file
+    // indirection exists only for ARG_MAX (>100KB self-review prompts), but
+    // it costs a tool round-trip before the model has even seen the task —
+    // and weaker agentic models (glm-4.6) sometimes stall right there.
+    // Linux MAX_ARG_STRLEN is 128KB per argv string; 90KB leaves headroom
+    // for the flags + wrapper. Newlines in argv are fine (no shell).
+    const ARGV_PROMPT_LIMIT = 90_000;
+    const directPrompt = Buffer.byteLength(opts.promptText, 'utf-8') <= ARGV_PROMPT_LIMIT;
+    const directive = directPrompt
+      ? `${opts.promptText}\n\nRespond with your full answer in this conversation, ending with ## DONE.`
+      : `Open the file at this absolute path using your read tool: ${promptPath} ` +
+        `— follow the instructions inside exactly and respond with your full answer in this conversation, ending with ## DONE.`;
 
     const opencodeArgs = ['run', '--format', 'json'];
     if (opts.model) opencodeArgs.push('--model', opts.model);
@@ -202,7 +225,10 @@ export const opencodeShim: AgentShim = {
     const run = spawnHeadless({
       command,
       args,
-      cwd: opts.cwd,
+      // The repo workspace when granted (see workDir above) — opencode's
+      // tools are cwd-scoped, and a reviewer that can't read the worktree
+      // can't do a correctness/coverage/completeness review.
+      cwd: workDir,
       parseLine: parseOpencode,
       onExit: (fullStdout) => parseOpencodeExit(fullStdout),
       cli: 'opencode',

@@ -71,6 +71,16 @@ phases:
       the rest of the checklist (security, unbounded-growth, breaking changes,
       reuse / DRY, dependencies, resilience, …) as far as you can.
 
+      ## NEVER stop without a review — degrade, don't quit
+
+      If your file/shell tools fail (worktree missing, path not accessible,
+      sandbox restriction), you MUST still deliver the complete review from
+      the diff in the artifact — every finding you can judge from the diff,
+      an explicit "Worktree access status: none/partial" note, and a verdict.
+      Ending your turn after a failed read, or with only a sentence of
+      preamble, is the one unacceptable outcome: an empty review is counted
+      as a FAILED reviewer and degrades the whole panel's quorum.
+
       ## Write PROGRESSIVELY so a long review never lands empty
 
       Do NOT hold all your findings in your head until the end — a review that
