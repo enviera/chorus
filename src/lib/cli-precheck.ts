@@ -97,7 +97,12 @@ const ENV_AUTH_VARS: Record<CliLineage, readonly string[]> = {
   anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
   openai: ['OPENAI_API_KEY'],
   google: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
-  opencode: ['OPENCODE_API_KEY'],
+  // ZAI_CODING_TOKEN: a custom opencode provider (OPENCODE_CONFIG) can
+  // authenticate via `{env:ZAI_CODING_TOKEN}` in its headers (the z.ai
+  // coding-plan gateway) — no auth.json involved. Without recognizing it,
+  // precheck rejects the zai/glm voice as auth_missing even though the
+  // provider works ("opencode models" lists it fine).
+  opencode: ['OPENCODE_API_KEY', 'ZAI_CODING_TOKEN'],
   moonshot: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY'],
 };
