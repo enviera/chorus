@@ -31,7 +31,7 @@ phases:
     title: PR / Code Review (multi-vendor)
     description: |
       You are reviewing code or a PR. Three reviewers from different lineages
-      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, and Zhipu GLM-4.6) read the
+      (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5, and Zhipu GLM-5.2) read the
       SAME artifact independently. 2-of-3 must agree to mark the chat as
       agreed.
 
@@ -412,7 +412,7 @@ phases:
             - gpt-5.5
         - lineage: opencode
           models:
-            - zai/glm-4.6
+            - zai/glm-5.2
     artifact:
       label: "Artifact to review"
       hint: "Paste the PR diff + spec / issue body, or any text blob to critique."

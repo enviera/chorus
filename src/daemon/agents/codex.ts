@@ -95,7 +95,17 @@ export function buildHeadlessArgs(opts: HeadlessSpawnOptions): string[] {
   // Strip user config — see function docstring for why.
   args.push('--ignore-user-config');
 
-  if (opts.sandbox === 'full') {
+  // CHORUS_CODEX_SANDBOX_BYPASS=1: the host environment IS the sandbox —
+  // set by containerized deployments (orchestrator session pods) where
+  // codex's own bubblewrap/landlock sandbox cannot create namespaces
+  // (GKE Autopilot forbids user namespaces; every worktree command failed
+  // "bwrap namespace permission error" and reviewers silently degraded to
+  // diff-only). The pod already provides isolation at least as strong as
+  // bwrap; bypassing codex's inner sandbox restores full worktree access.
+  // Never set this on a bare host — there, codex's sandbox is the only wall.
+  if (process.env.CHORUS_CODEX_SANDBOX_BYPASS === '1') {
+    args.push('--dangerously-bypass-approvals-and-sandbox');
+  } else if (opts.sandbox === 'full') {
     args.push('--dangerously-bypass-approvals-and-sandbox');
   } else if (opts.sandbox === 'strict') {
     args.push('-c', 'sandbox_mode="read-only"');
