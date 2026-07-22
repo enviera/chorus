@@ -27,7 +27,7 @@ export function verdictFromReviewerText(content: string): boolean | null {
   // tense — "disagreed" has no word boundary before the trailing d, so a
   // reviewer writing "I disagreed with this approach" parsed as ambiguous.
   const negatives =
-    /\b(request changes|requesting changes|disagree(?:d|s|ing)?|reject(?:ed|ing)?|blocker|(?:do not|don['’]?t) (?:approve|merge)|(?:cannot|can['’]?t) (?:approve|merge)|nack)\b/;
+    /\b(request[ _]changes|requesting changes|comment[ -]only|disagree(?:d|s|ing)?|reject(?:ed|ing)?|blocker|(?:do not|don['’]?t) (?:approve|merge)|(?:cannot|can['’]?t) (?:approve|merge)|nack)\b/;
   // "agree(?:d|s)?": the review templates describe the quorum as reviewers
   // AGREEING ("2-of-3 must agree…"), so reviewers write `## Verdict\nagreed`
   // — which the old list didn't contain. Result: every "agreed" verdict

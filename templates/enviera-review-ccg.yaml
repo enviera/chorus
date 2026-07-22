@@ -352,7 +352,17 @@ phases:
           `none — could not access repoPath; reviewed diff only`>
 
       ## Verdict
-      <agreed | request_changes | comment-only>
+      <agreed | request_changes>
+
+      The verdict token is BINARY and must be EXACTLY `agreed` or
+      `request_changes` — never any other word (not "approve", not
+      "comment-only", not "LGTM with nits"). The tally engine classifies
+      your verdict mechanically: an unrecognized token is counted as a
+      FAILED reviewer, your entire review is discarded from the quorum,
+      and the panel may trigger a degraded-run rerun that burns quota.
+      Comments and non-blocking suggestions belong under `## Notes for
+      the reviewer` WITH verdict `agreed` — that is how you express
+      "approve with comments".
 
       ## Findings
 
