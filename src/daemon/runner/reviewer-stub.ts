@@ -79,10 +79,15 @@ function hasFindings(text: string): boolean {
 
 /**
  * True when the answer is a verdict-only stub: a verdict is present, the
- * findings section is empty, and either the remaining body is shorter than
- * the byte threshold or it names a failed verification step. An answer with
- * findings is never a stub, however short; an answer without a verdict is not
- * a stub either (it is an ordinary failure the existing paths handle).
+ * findings section is empty, and EITHER the answer names a failed
+ * verification step OR it carries no verification evidence and its remaining
+ * body is shorter than the byte threshold. An answer with findings is never a
+ * stub, however short; an answer without a verdict is not a stub either (it
+ * is an ordinary failure the existing paths handle); and a clean approve that
+ * lists the files it read and reports the worktree as verified is a real
+ * review of a PR with nothing wrong in it, not a stub — the first version of
+ * this check flagged exactly that on two consecutive runs (2026-09-08,
+ * orchestrator#543) and aborted the review.
  */
 export function isStubReviewerAnswer(
   text: string,
@@ -102,10 +107,27 @@ export function isStubReviewerAnswer(
     .replace(/^##\s*DONE\s*$/im, '')
     .trim();
 
+  const lowerAll = text.toLowerCase();
+  if (VERIFICATION_FAILURE_MARKERS.some((m) => lowerAll.includes(m))) return true;
+  if (hasVerificationEvidence(text)) return false;
   const maxBytes = opts.maxBytes ?? resolveStubMaxBytes();
-  if (Buffer.byteLength(body, 'utf-8') < maxBytes) return true;
-  const lower = body.toLowerCase();
-  return VERIFICATION_FAILURE_MARKERS.some((m) => lower.includes(m));
+  return Buffer.byteLength(body, 'utf-8') < maxBytes;
+}
+
+/**
+ * A verification log that actually names something: at least one path-like
+ * token under "Files read" or "Shell commands run", or an explicit
+ * "verified" worktree access status. "(none — diff only)" and "none" do not
+ * count.
+ */
+export function hasVerificationEvidence(text: string): boolean {
+  const v = section(text, /^##\s*Verification steps run\b/i);
+  if (v === undefined) return false;
+  if (/worktree access status:\*{0,2}\s*(\*{0,2})?\s*verified/i.test(v)) return true;
+  const filesLine = v.match(/files read:\*{0,2}\s*([^\n]*)/i)?.[1] ?? '';
+  if (/`[^`]*[\/.][^`]*`/.test(filesLine) && !/\(none/i.test(filesLine)) return true;
+  const cmdLine = v.match(/shell commands run:\*{0,2}\s*([^\n]*)/i)?.[1] ?? '';
+  return /`[^`]+`/.test(cmdLine) && !/\(none/i.test(cmdLine);
 }
 
 export interface StubRetryContext {

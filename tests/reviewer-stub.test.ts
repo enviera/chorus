@@ -225,3 +225,39 @@ describe('runReviewerWithStubRetry', () => {
     expect(fs.readFileSync(answerFile, 'utf-8')).toContain('## REVIEWER DEGRADED');
   });
 });
+
+describe('isStubReviewerAnswer — clean approves with verification evidence', () => {
+  const realApprove = `## Verification steps run
+- **Files read:** \`/workspace/orchestrator/app/src/dispatch/autoDispatcher.ts\`, \`/workspace/orchestrator/app/src/gh/issues.ts\`
+- **Shell commands run:** \`git status --short\`, \`git show --stat HEAD\`
+- **Worktree access status:** verified — read files / ran commands at repoPath successfully
+
+## Verdict
+agreed
+
+## Findings
+(none)
+
+## Notes for the reviewer
+The change unions cached PRs with validated completion refs only for stage-complete dispatches.
+
+## DONE
+`;
+  it('is not a stub when files were read and the worktree is verified (orchestrator#543 shape)', () => {
+    expect(isStubReviewerAnswer(realApprove, { maxBytes: 600 })).toBe(false);
+  });
+  it('is still a stub when the verification log says nothing was read', () => {
+    const diffOnly = realApprove
+      .replace(/- \*\*Files read:\*\*[^\n]*/, '- **Files read:** `(none — diff only)`')
+      .replace(/- \*\*Shell commands run:\*\*[^\n]*/, '- **Shell commands run:** `(none)`')
+      .replace(/verified — [^\n]*/, 'none — could not access repoPath');
+    expect(isStubReviewerAnswer(diffOnly, { maxBytes: 600 })).toBe(true);
+  });
+  it('is a stub when a verification command failed, even with files read', () => {
+    const failed = realApprove.replace(
+      'The change unions cached PRs',
+      'The typecheck could not execute because tsc is not installed. The change unions cached PRs',
+    );
+    expect(isStubReviewerAnswer(failed, { maxBytes: 600 })).toBe(true);
+  });
+});
