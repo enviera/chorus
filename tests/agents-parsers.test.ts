@@ -56,6 +56,28 @@ describe('parseClaude — real fixture (Claude Code 2.1.123, captured 2026-04-30
     expect(errEvents[0].type).toBe('error');
   });
 
+  // A turn-cap stop carries an EMPTY result: before this the parser
+  // collapsed it to the default "Claude reported error", indistinguishable
+  // from an API failure. The subtype must survive on the event and lead
+  // the message so a reader can tell the two apart.
+  it('carries the result subtype on a non-success result (empty result → turn cap)', () => {
+    const errEvents = parseClaude(
+      '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","num_turns":50}',
+    );
+    expect(errEvents).toHaveLength(1);
+    const ev = errEvents[0] as { type: string; kind: string; message: string; subtype?: string };
+    expect(ev.type).toBe('error');
+    expect(ev.kind).toBe('claude_result_error');
+    expect(ev.subtype).toBe('error_max_turns');
+    expect(ev.message).toBe('error_max_turns: Claude reported error');
+
+    const withText = parseClaude(
+      '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom"}',
+    )[0] as { message: string; subtype?: string };
+    expect(withText.subtype).toBe('error_during_execution');
+    expect(withText.message).toBe('error_during_execution: boom');
+  });
+
   it('returns [] for malformed/system/empty lines', () => {
     expect(parseClaude('not json')).toHaveLength(0);
     expect(parseClaude('')).toHaveLength(0);

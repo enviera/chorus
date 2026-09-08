@@ -216,7 +216,18 @@ export type AgentEvent =
         costUsd?: number;
       };
     }
-  | { type: 'error'; kind: string; message: string };
+  | {
+      type: 'error';
+      kind: string;
+      message: string;
+      /**
+       * CLI-specific failure subtype when the transport reports one — e.g.
+       * claude's result `subtype` (`error_max_turns`,
+       * `error_during_execution`). Lets a caller tell a turn-cap stop from
+       * an API failure without parsing the message.
+       */
+      subtype?: string;
+    };
 
 /**
  * Options for `AgentShim.runHeadless`. Mirrors `AgentSpawnOptions` for the

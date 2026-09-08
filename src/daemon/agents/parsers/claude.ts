@@ -70,11 +70,18 @@ export function parseClaude(line: string): AgentEvent[] {
         },
       ];
     }
+    // Keep the CLI's own subtype in front of the message. Without it a
+    // turn-cap stop (`error_max_turns`, whose `result` is empty) and an
+    // API failure both read as the default "Claude reported error", and
+    // the only way to tell them apart was the run's duration.
+    const errSubtype = typeof subtype === 'string' && subtype.length > 0 ? subtype : 'unknown';
+    const detail = String(obj.result || obj.api_error_status || 'Claude reported error');
     return [
       {
         type: 'error',
         kind: 'claude_result_error',
-        message: String(obj.result ?? obj.api_error_status ?? 'Claude reported error'),
+        subtype: errSubtype,
+        message: `${errSubtype}: ${detail}`,
       },
     ];
   }
