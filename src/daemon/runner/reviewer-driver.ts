@@ -400,6 +400,7 @@ async function runReviewer(
     doerOutput,
     filesBlock,
     reviewerPersonaPrompt,
+    repoPath,
   );
   fs.writeFileSync(askFile, ask);
 

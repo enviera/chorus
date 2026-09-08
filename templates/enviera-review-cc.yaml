@@ -36,8 +36,9 @@ phases:
       (Anthropic Opus 4.7, OpenAI Codex / GPT-5.5) read the SAME artifact
       independently. Both must agree to mark the chat as agreed.
 
-      You have full filesystem access to the worktree at the supplied
-      repoPath. Use Read / Bash / Grep liberally to verify the diff against
+      You have read access to the repository checkout at the absolute path
+      named under "Repository checkout" above (your cwd is the review
+      scratch dir, not the repo). Use Read / Bash / Grep liberally to verify the diff against
       surrounding code, adjacent helpers, repo conventions, and the project's
       CLAUDE.md / Guidelines.md.
 

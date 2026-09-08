@@ -236,6 +236,7 @@ export function buildReviewerAsk(
   doerOutput: string,
   filesBlock: string,
   personaSystemPrompt?: string,
+  repoPath?: string,
 ): string {
   const lines: string[] = [];
 
@@ -248,6 +249,23 @@ export function buildReviewerAsk(
   lines.push('## Your role');
   lines.push('reviewer');
   lines.push('');
+  // Reviewer cells run with cwd = the per-chat reviewer dir, not the repo;
+  // the checkout is granted as an extra read dir (claude `--add-dir`) or
+  // reachable through a bypassed sandbox (codex). Nothing else in the ask
+  // tells the reviewer WHERE that checkout is, so a reviewer that `ls`es
+  // its cwd concludes "the supplied worktree contains only ask.md and
+  // answer.md" and reviews the diff alone. Name the absolute path.
+  if (repoPath) {
+    lines.push('## Repository checkout (read-only)');
+    lines.push(repoPath);
+    lines.push('');
+    lines.push(
+      'Your working directory is the review scratch dir, not the repository. ' +
+        'Read the checkout at the absolute path above (e.g. `cd` there in Bash, ' +
+        'or open files by absolute path). Write only `./answer.md` in your cwd.',
+    );
+    lines.push('');
+  }
   lines.push('## What to review');
   lines.push(phase.title);
   if (phase.description) {
