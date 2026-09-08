@@ -15,6 +15,7 @@ import * as participantAborts from '../participant-aborts.js';
 import type { TmuxManager } from '../tmux-types.js';
 import { buildReviewerAsk } from './prompt-builder.js';
 import { runReviewerHeadless } from './reviewer.js';
+import { runReviewerWithStubRetry } from './reviewer-stub.js';
 import {
   release as releaseFallbackClaim,
   tryClaim as tryClaimFallbackTarget,
@@ -488,21 +489,55 @@ async function runReviewer(
             const entryShim = entry.lineage === candidate.lineage
               ? shim
               : pickShimForVoice(entry.lineage as Lineage, entry.model);
-            return await runReviewerHeadless({
-              shim: entryShim,
-              chatId,
-              phase,
-              round,
-              reviewerIdx,
-              candidateLineage: entry.lineage,
-              candidateModel: entry.model,
-              agentName,
-              askContent: ask,
+            const runOnce = () =>
+              runReviewerHeadless({
+                shim: entryShim,
+                chatId,
+                phase,
+                round,
+                reviewerIdx,
+                candidateLineage: entry.lineage,
+                candidateModel: entry.model,
+                agentName,
+                askContent: ask,
+                answerFile,
+                reviewerDir,
+                repoPath,
+                abortSignal: handle.signal,
+                onEvent,
+              });
+            // A verdict-only stub (no findings, a failed verification note)
+            // is re-run in place — same lineage, model and prompt — before
+            // it counts as this slot's answer. Other slots are untouched.
+            // A stub that survives its retries is kept but stamped
+            // DEGRADED so quorum reads it as a weak cell, not a clean pass.
+            return await runReviewerWithStubRetry(runOnce, {
               answerFile,
               reviewerDir,
-              repoPath,
-              abortSignal: handle.signal,
-              onEvent,
+              round,
+              lineage: entry.lineage,
+              model: entry.model,
+              agent: `${agentName}-${reviewerIdx}`,
+              chatId,
+              onStubRetry: (attempt, remaining) => {
+                onEvent({
+                  chatId,
+                  type: 'cli_warning',
+                  payload: {
+                    phaseId: phase.id,
+                    round,
+                    role: 'reviewer',
+                    agent: `${agentName}-${reviewerIdx}`,
+                    reason: 'stub_retry',
+                    fromLineage: entry.lineage,
+                    toLineage: entry.lineage,
+                    fromModel: entry.model ?? '(default)',
+                    toModel: entry.model ?? '(default)',
+                    message: `Reviewer ${entry.lineage}/${entry.model ?? '(default)'} returned a verdict with no findings; re-running the cell (attempt ${attempt}, ${remaining} retr${remaining === 1 ? 'y' : 'ies'} left).`,
+                  },
+                  ts: Date.now(),
+                });
+              },
             });
           } finally {
             // Release whether the attempt succeeded, returned null, or
