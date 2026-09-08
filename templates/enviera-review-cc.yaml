@@ -30,6 +30,9 @@ ship:
 phases:
   - id: review
     kind: review_only
+    # 20 min: a reviewer with worktree access on a 50-file PR ran past the
+    # 10-minute default twice in one night (2026-09-08, orchestrator#539).
+    timeoutMs: 1200000
     title: PR / Code Review (multi-vendor)
     description: |
       You are reviewing code or a PR. Two reviewers from different lineages
