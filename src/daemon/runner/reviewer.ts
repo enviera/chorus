@@ -10,7 +10,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { StandardPhase } from '../../lib/template-schema.js';
-import { DEFAULT_PHASE_TIMEOUT_MS } from '../../lib/template-schema.js';
+import {
+  DEFAULT_PHASE_TIMEOUT_MS,
+  DEFAULT_REVIEWER_MAX_TURNS,
+} from '../../lib/template-schema.js';
 import type { AgentShim } from '../agents/types.js';
 import { getPermissions } from '../../lib/settings/permissions.js';
 import {
@@ -23,6 +26,27 @@ import { synthesizeCostUsd } from '../../lib/model-pricing.js';
 import { StreamFileWriter } from './stream-file-writer.js';
 import { verdictFromReviewerText } from './verdict.js';
 import type { RunnerEvent } from './types.js';
+
+/**
+ * Resolve the reviewer turn cap: phase override → CHORUS_REVIEWER_MAX_TURNS
+ * → DEFAULT_REVIEWER_MAX_TURNS. Anything that is not a positive integer
+ * falls through to the next source, so a typo'd env var cannot silently
+ * disable the backstop or set it to 0.
+ */
+export function resolveReviewerMaxTurns(
+  phaseOverride: number | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  if (Number.isInteger(phaseOverride) && (phaseOverride as number) > 0) {
+    return phaseOverride as number;
+  }
+  const raw = env.CHORUS_REVIEWER_MAX_TURNS;
+  if (raw !== undefined && /^\d+$/.test(raw.trim())) {
+    const n = Number.parseInt(raw.trim(), 10);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return DEFAULT_REVIEWER_MAX_TURNS;
+}
 
 export async function runReviewerHeadless(args: {
   shim: AgentShim;
@@ -121,12 +145,15 @@ export async function runReviewerHeadless(args: {
       networkAccess: perms.networkAccess,
       abortSignal,
       timeoutMs: phase.timeoutMs ?? DEFAULT_PHASE_TIMEOUT_MS,
-      // Generous turn backstop (claude shim only). A focused review converges
-      // in ~13 turns and even a thorough one stays well under 40; 50 never
-      // cuts a legitimate review but force-stops a pathological loop before it
-      // burns the whole timeout. Incremental capture (--include-partial-
-      // messages) means a stopped run still leaves its accumulated findings.
-      maxTurns: 50,
+      // Turn backstop (claude shim only). A reviewer with worktree read
+      // access spends a turn per file it opens, so the cap has to scale
+      // with the diff: the old fixed 50 was exhausted on a 58-file PR before
+      // a single finding was written, and the failure surfaced as a bare
+      // `claude_result_error`. Phase override → env → default; the phase
+      // timeout still bounds a pathological loop. Incremental capture
+      // (--include-partial-messages) means a stopped run keeps whatever it
+      // streamed.
+      maxTurns: resolveReviewerMaxTurns(phase.reviewerMaxTurns),
     });
 
     for await (const event of stream) {
@@ -392,6 +419,31 @@ export async function runReviewerHeadless(args: {
           `Likely a transport bug (e.g. opencode 1.14.x writes JSON only to a TTY) ` +
           `or a silent abort. Check the CLI's own log for details.`,
       };
+    }
+    // The reviewer streamed real findings and THEN the CLI failed (turn cap,
+    // timeout, API error mid-run). The deltas are already on disk via the
+    // writer; stamp a DEGRADED block — deliberately without `## DONE` — so a
+    // reader sees both the partial review and why it stopped, instead of
+    // the findings being indistinguishable from a clean answer or thrown
+    // away behind a FAILED stub. `errored` stays true, so quorum logic is
+    // unchanged: this slot still counts as failed.
+    if (errored && accumulated.trim().length >= 400 && (!finalText || finalText.length === 0)) {
+      try {
+        const existing = fs.readFileSync(answerFile, 'utf-8');
+        if (!/##\s*REVIEWER DEGRADED/i.test(existing)) {
+          fs.appendFileSync(
+            answerFile,
+            (existing.endsWith('\n') ? '\n' : '\n\n') +
+              `## REVIEWER DEGRADED\n` +
+              `**Kind:** ${errorSummary?.kind ?? 'unknown'}\n` +
+              `**Lineage:** ${candidateLineage}\n` +
+              `**Model:** ${candidateModel ?? '(default)'}\n` +
+              `\n${errorSummary?.message ?? '(no message captured)'}\n`,
+          );
+        }
+      } catch {
+        /* best-effort — the streamed findings are already on disk */
+      }
     }
     // When the subprocess died without producing any content, write the
     // error summary to answer.md so the chat dir is self-explanatory.

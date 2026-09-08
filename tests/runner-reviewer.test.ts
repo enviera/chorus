@@ -114,6 +114,94 @@ describe('runReviewerHeadless', () => {
     expect(handle.calls[0].options.timeoutMs).toBe(10 * 60 * 1000);
   });
 
+  // Turn cap resolution: phase override → CHORUS_REVIEWER_MAX_TURNS → default.
+  // The default was a fixed 50, which a reviewer with worktree access
+  // exhausted on a 58-file diff before writing a finding.
+  describe('reviewer turn cap', () => {
+    afterEach(() => {
+      delete process.env.CHORUS_REVIEWER_MAX_TURNS;
+    });
+
+    it('defaults to DEFAULT_REVIEWER_MAX_TURNS (120)', async () => {
+      const handle = makeFakeShim({ events: happyPathEvents(`${PADDING}\nlgtm\n## DONE`) });
+      await callReviewer(handle);
+      expect(handle.calls[0].options.maxTurns).toBe(120);
+    });
+
+    it('honours CHORUS_REVIEWER_MAX_TURNS and ignores a non-integer value', async () => {
+      process.env.CHORUS_REVIEWER_MAX_TURNS = '200';
+      let handle = makeFakeShim({ events: happyPathEvents(`${PADDING}\nlgtm\n## DONE`) });
+      await callReviewer(handle);
+      expect(handle.calls[0].options.maxTurns).toBe(200);
+
+      process.env.CHORUS_REVIEWER_MAX_TURNS = '2junk';
+      handle = makeFakeShim({ events: happyPathEvents(`${PADDING}\nlgtm\n## DONE`) });
+      await callReviewer(handle);
+      expect(handle.calls[0].options.maxTurns).toBe(120);
+
+      process.env.CHORUS_REVIEWER_MAX_TURNS = '0';
+      handle = makeFakeShim({ events: happyPathEvents(`${PADDING}\nlgtm\n## DONE`) });
+      await callReviewer(handle);
+      expect(handle.calls[0].options.maxTurns).toBe(120);
+    });
+
+    it('lets phase.reviewerMaxTurns beat the env var', async () => {
+      process.env.CHORUS_REVIEWER_MAX_TURNS = '200';
+      const handle = makeFakeShim({ events: happyPathEvents(`${PADDING}\nlgtm\n## DONE`) });
+      const phaseWithCap: StandardPhase = { ...fixturePhase, reviewerMaxTurns: 33 };
+      await runReviewerHeadless({
+        shim: handle.shim,
+        chatId: 'test-chat',
+        phase: phaseWithCap,
+        round: 1,
+        reviewerIdx: 0,
+        candidateLineage: 'openai',
+        candidateModel: 'gpt-5.5',
+        agentName: 'codex-cli',
+        askContent: 'review the doer output',
+        answerFile,
+        reviewerDir,
+        abortSignal: new AbortController().signal,
+        onEvent: (e) => events.push(e),
+      });
+      expect(handle.calls[0].options.maxTurns).toBe(33);
+    });
+  });
+
+  // A reviewer that streamed real findings and THEN died (turn cap, API
+  // error) must keep those findings on disk with a DEGRADED block and no
+  // `## DONE`, and still count as a failed slot (null verdict).
+  it('keeps streamed findings and stamps REVIEWER DEGRADED when the run errors after content', async () => {
+    const findings = `## Findings\n- ${PADDING}\n- ${PADDING}\n- ${PADDING}\n- ${PADDING}\n- request changes: missing null check\n`;
+    const handle = makeFakeShim({
+      events: [
+        { type: 'text_delta', text: findings },
+        { type: 'error', kind: 'claude_result_error', message: 'error_max_turns: Claude reported error' },
+      ],
+    });
+    const verdict = await callReviewer(handle);
+    // Existing semantics: streamed content still yields a text verdict
+    // (here "request changes" → false); only a content-less error is null.
+    expect(verdict).toBe(false);
+    const written = fs.readFileSync(answerFile, 'utf-8');
+    expect(written).toContain('missing null check');
+    expect(written).toContain('## REVIEWER DEGRADED');
+    expect(written).toContain('**Kind:** claude_result_error');
+    expect(written).toContain('error_max_turns');
+    expect(written).not.toContain('## REVIEWER FAILED');
+    expect(/##\s*DONE/i.test(written)).toBe(false);
+  });
+
+  it('still writes the FAILED stub when the run errors before any content', async () => {
+    const handle = makeFakeShim({
+      events: [{ type: 'error', kind: 'claude_result_error', message: 'error_max_turns: Claude reported error' }],
+    });
+    await callReviewer(handle);
+    const written = fs.readFileSync(answerFile, 'utf-8');
+    expect(written).toContain('## REVIEWER FAILED');
+    expect(written).not.toContain('## REVIEWER DEGRADED');
+  });
+
   it('returns true when reviewer text approves at the tail', async () => {
     const text = `${PADDING}\nThis change handles divide-by-zero correctly. lgtm.\n## DONE`;
     const handle = makeFakeShim({ events: happyPathEvents(text) });

@@ -51,6 +51,25 @@ const PhaseTimeoutSchema = z
   .max(PHASE_TIMEOUT_MAX_MS)
   .optional();
 
+/**
+ * Default turn backstop for headless reviewer cells (claude shim only —
+ * codex/gemini have no equivalent flag). Applied when neither the phase's
+ * `reviewerMaxTurns` nor `CHORUS_REVIEWER_MAX_TURNS` is set.
+ *
+ * Was 50. A reviewer with worktree read access spends one turn per file it
+ * opens, so a 50-plus-file diff exhausted the cap before the reviewer wrote
+ * a line and surfaced as a bare `claude_result_error`. 120 leaves room for
+ * a thorough crawl of a large PR while the phase timeout still bounds a
+ * pathological loop.
+ */
+export const DEFAULT_REVIEWER_MAX_TURNS = 120;
+
+/**
+ * Bounds on the optional per-phase reviewer turn cap. 1 catches a typo'd
+ * zero; 1000 catches a value that would let a loop run until the timeout.
+ */
+const ReviewerMaxTurnsSchema = z.number().int().min(1).max(1000).optional();
+
 const lineageEnum = z.enum(['anthropic', 'openai', 'google', 'opencode', 'moonshot', 'openrouter', 'any']);
 const reviewerLineageEnum = z.enum(['anthropic', 'openai', 'google', 'opencode', 'moonshot', 'openrouter']);
 
@@ -165,6 +184,13 @@ const StandardPhaseSchema = z.object({
    * to DEFAULT_PHASE_TIMEOUT_MS. Bounds: 30s ≤ timeoutMs ≤ 1h.
    */
   timeoutMs: PhaseTimeoutSchema,
+
+  /**
+   * Optional turn cap for each headless reviewer cell in this phase
+   * (claude shim only). Beats `CHORUS_REVIEWER_MAX_TURNS`, which beats
+   * DEFAULT_REVIEWER_MAX_TURNS.
+   */
+  reviewerMaxTurns: ReviewerMaxTurnsSchema,
 });
 
 /**
@@ -198,6 +224,9 @@ const ReviewOnlyPhaseSchema = z.object({
 
   /** Same per-phase override as standard phases; applies to all reviewers. */
   timeoutMs: PhaseTimeoutSchema,
+
+  /** Same reviewer turn cap override as standard phases. */
+  reviewerMaxTurns: ReviewerMaxTurnsSchema,
 });
 
 export const PhaseSchema = z.discriminatedUnion('kind', [
